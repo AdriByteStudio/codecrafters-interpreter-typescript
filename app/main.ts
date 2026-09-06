@@ -233,12 +233,29 @@ function printExpr(expr: Expr): string {
   return String(expr.value);
 }
 
+function isTruthy(value: string | number | boolean | null): boolean {
+  if (value === null) {
+    return false;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  return true;
+}
+
 function evaluate(expr: Expr): string | number | boolean | null {
   if (expr.kind === "literal") {
     return expr.value;
   }
   if (expr.kind === "grouping") {
     return evaluate(expr.expression);
+  }
+  if (expr.kind === "unary") {
+    const right = evaluate(expr.right);
+    if (expr.operator === "-") {
+      return -(right as number);
+    }
+    return !isTruthy(right);
   }
   throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
 }
