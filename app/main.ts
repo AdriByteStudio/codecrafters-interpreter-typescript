@@ -201,7 +201,14 @@ interface UnaryExpr {
   right: Expr;
 }
 
-type Expr = LiteralExpr | GroupingExpr | UnaryExpr;
+interface BinaryExpr {
+  kind: "binary";
+  operator: string;
+  left: Expr;
+  right: Expr;
+}
+
+type Expr = LiteralExpr | GroupingExpr | UnaryExpr | BinaryExpr;
 
 function printExpr(expr: Expr): string {
   if (expr.kind === "grouping") {
@@ -209,6 +216,9 @@ function printExpr(expr: Expr): string {
   }
   if (expr.kind === "unary") {
     return `(${expr.operator} ${printExpr(expr.right)})`;
+  }
+  if (expr.kind === "binary") {
+    return `(${expr.operator} ${printExpr(expr.left)} ${printExpr(expr.right)})`;
   }
   if (expr.value === null) {
     return "nil";
@@ -225,7 +235,18 @@ class Parser {
   }
 
   parse(): Expr {
-    return this.unary();
+    return this.factor();
+  }
+
+  private factor(): Expr {
+    let expr = this.unary();
+    while (this.tokens[this.current].type === "SLASH" || this.tokens[this.current].type === "STAR") {
+      const operator = this.tokens[this.current].lexeme;
+      this.current++;
+      const right = this.unary();
+      expr = { kind: "binary", operator, left: expr, right };
+    }
+    return expr;
   }
 
   private unary(): Expr {
@@ -258,7 +279,7 @@ class Parser {
         return { kind: "literal", value: token.literal };
       case "LEFT_PAREN": {
         this.current++;
-        const expression = this.unary();
+        const expression = this.factor();
         this.current++; // consume RIGHT_PAREN
         return { kind: "grouping", expression };
       }
