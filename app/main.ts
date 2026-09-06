@@ -195,11 +195,20 @@ interface GroupingExpr {
   expression: Expr;
 }
 
-type Expr = LiteralExpr | GroupingExpr;
+interface UnaryExpr {
+  kind: "unary";
+  operator: string;
+  right: Expr;
+}
+
+type Expr = LiteralExpr | GroupingExpr | UnaryExpr;
 
 function printExpr(expr: Expr): string {
   if (expr.kind === "grouping") {
     return `(group ${printExpr(expr.expression)})`;
+  }
+  if (expr.kind === "unary") {
+    return `(${expr.operator} ${printExpr(expr.right)})`;
   }
   if (expr.value === null) {
     return "nil";
@@ -216,6 +225,16 @@ class Parser {
   }
 
   parse(): Expr {
+    return this.unary();
+  }
+
+  private unary(): Expr {
+    const token = this.tokens[this.current];
+    if (token.type === "BANG" || token.type === "MINUS") {
+      this.current++;
+      const right = this.unary();
+      return { kind: "unary", operator: token.lexeme, right };
+    }
     return this.primary();
   }
 
@@ -239,7 +258,7 @@ class Parser {
         return { kind: "literal", value: token.literal };
       case "LEFT_PAREN": {
         this.current++;
-        const expression = this.primary();
+        const expression = this.unary();
         this.current++; // consume RIGHT_PAREN
         return { kind: "grouping", expression };
       }
