@@ -440,8 +440,11 @@ class Parser {
   private varDeclaration(): VarStmt {
     this.current++;
     const name = this.consume("IDENTIFIER", "Expect variable name.");
-    this.consume("EQUAL", "Expect '=' after variable name.");
-    const initializer = this.equality();
+    let initializer: Expr = { kind: "literal", value: null };
+    if (this.tokens[this.current].type === "EQUAL") {
+      this.current++;
+      initializer = this.equality();
+    }
     this.consume("SEMICOLON", "Expect ';' after variable declaration.");
     return { kind: "var", name: name.lexeme, initializer };
   }
