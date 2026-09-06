@@ -399,13 +399,22 @@ interface VarStmt {
   initializer: Expr;
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt;
+interface BlockStmt {
+  kind: "block";
+  statements: Stmt[];
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt;
 
 function execute(stmt: Stmt, environment: Map<string, Value>): void {
   if (stmt.kind === "print") {
     console.log(stringify(evaluate(stmt.expression, environment)));
   } else if (stmt.kind === "var") {
     environment.set(stmt.name, evaluate(stmt.initializer, environment));
+  } else if (stmt.kind === "block") {
+    for (const statement of stmt.statements) {
+      execute(statement, environment);
+    }
   } else {
     evaluate(stmt.expression, environment);
   }
@@ -441,6 +450,9 @@ class Parser {
   }
 
   private statement(): Stmt {
+    if (this.tokens[this.current].type === "LEFT_BRACE") {
+      return this.block();
+    }
     if (this.tokens[this.current].type === "VAR") {
       return this.varDeclaration();
     }
@@ -453,6 +465,16 @@ class Parser {
     const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private block(): BlockStmt {
+    this.current++;
+    const statements: Stmt[] = [];
+    while (this.tokens[this.current].type !== "RIGHT_BRACE" && this.tokens[this.current].type !== "EOF") {
+      statements.push(this.statement());
+    }
+    this.consume("RIGHT_BRACE", "Expect '}' .");
+    return { kind: "block", statements };
   }
 
   private varDeclaration(): VarStmt {
