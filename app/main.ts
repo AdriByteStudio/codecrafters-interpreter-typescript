@@ -274,22 +274,51 @@ class RuntimeError extends Error {
   }
 }
 
-function evaluate(expr: Expr, environment: Map<string, Value>): Value {
+class Environment {
+  private values = new Map<string, Value>();
+  private enclosing?: Environment;
+
+  constructor(enclosing?: Environment) {
+    this.enclosing = enclosing;
+  }
+
+  define(name: string, value: Value): void {
+    this.values.set(name, value);
+  }
+
+  get(name: string, line: number): Value {
+    if (this.values.has(name)) {
+      return this.values.get(name) as Value;
+    }
+    if (this.enclosing !== undefined) {
+      return this.enclosing.get(name, line);
+    }
+    throw new RuntimeError(line, `Undefined variable '${name}'.`);
+  }
+
+  assign(name: string, value: Value, line: number): void {
+    if (this.values.has(name)) {
+      this.values.set(name, value);
+      return;
+    }
+    if (this.enclosing !== undefined) {
+      this.enclosing.assign(name, value, line);
+      return;
+    }
+    throw new RuntimeError(line, `Undefined variable '${name}'.`);
+  }
+}
+
+function evaluate(expr: Expr, environment: Environment): Value {
   if (expr.kind === "literal") {
     return expr.value;
   }
   if (expr.kind === "variable") {
-    if (!environment.has(expr.name)) {
-      throw new RuntimeError(expr.line, `Undefined variable '${expr.name}'.`);
-    }
-    return environment.get(expr.name) as Value;
+    return environment.get(expr.name, expr.line);
   }
   if (expr.kind === "assign") {
-    if (!environment.has(expr.name)) {
-      throw new RuntimeError(expr.line, `Undefined variable '${expr.name}'.`);
-    }
     const value = evaluate(expr.value, environment);
-    environment.set(expr.name, value);
+    environment.assign(expr.name, value, expr.line);
     return value;
   }
   if (expr.kind === "grouping") {
@@ -406,14 +435,15 @@ interface BlockStmt {
 
 type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt;
 
-function execute(stmt: Stmt, environment: Map<string, Value>): void {
+function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
     console.log(stringify(evaluate(stmt.expression, environment)));
   } else if (stmt.kind === "var") {
-    environment.set(stmt.name, evaluate(stmt.initializer, environment));
+    environment.define(stmt.name, evaluate(stmt.initializer, environment));
   } else if (stmt.kind === "block") {
+    const blockEnvironment = new Environment(environment);
     for (const statement of stmt.statements) {
-      execute(statement, environment);
+      execute(statement, blockEnvironment);
     }
   } else {
     evaluate(stmt.expression, environment);
@@ -646,7 +676,7 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
-    console.log(stringify(evaluate(expr, new Map())));
+    console.log(stringify(evaluate(expr, new Environment())));
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
@@ -663,7 +693,7 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const statements = parser.parseProgram();
-    const environment = new Map<string, Value>();
+    const environment = new Environment();
     for (const statement of statements) {
       execute(statement, environment);
     }
