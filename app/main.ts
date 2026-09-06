@@ -287,9 +287,18 @@ function evaluate(expr: Expr): string | number | boolean | null {
       return left / right;
     }
     if (expr.operator === "+") {
-      return left + right;
+      if (typeof left === "number" && typeof right === "number") {
+        return left + right;
+      }
+      if (typeof left === "string" && typeof right === "string") {
+        return left + right;
+      }
+      throw new RuntimeError(expr.line, "Operands must be two numbers or two strings.");
     }
     if (expr.operator === "-") {
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operands must be numbers.");
+      }
       return left - right;
     }
     if (expr.operator === ">") {
