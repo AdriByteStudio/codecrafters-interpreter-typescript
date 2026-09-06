@@ -41,6 +41,25 @@ function isAlphaNumeric(char: string | undefined): boolean {
   return isAlpha(char) || isDigit(char);
 }
 
+const keywords: Record<string, string> = {
+  and: "AND",
+  class: "CLASS",
+  else: "ELSE",
+  false: "FALSE",
+  for: "FOR",
+  fun: "FUN",
+  if: "IF",
+  nil: "NIL",
+  or: "OR",
+  print: "PRINT",
+  return: "RETURN",
+  super: "SUPER",
+  this: "THIS",
+  true: "TRUE",
+  var: "VAR",
+  while: "WHILE",
+};
+
 while (i < fileContent.length) {
   const char = fileContent[i];
   switch (char) {
@@ -163,7 +182,8 @@ while (i < fileContent.length) {
           i++;
         }
         const lexeme = fileContent.slice(start, i + 1);
-        tokens.push(`IDENTIFIER ${lexeme} null`);
+        const type = keywords[lexeme] ?? "IDENTIFIER";
+        tokens.push(`${type} ${lexeme} null`);
       } else {
         console.error(`[line ${line}] Error: Unexpected character: ${char}`);
         hadError = true;
