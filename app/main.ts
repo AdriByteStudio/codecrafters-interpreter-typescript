@@ -533,7 +533,7 @@ class Parser {
       case "LEFT_PAREN": {
         this.current++;
         const expression = this.equality();
-        this.current++; // consume RIGHT_PAREN
+        this.consume("RIGHT_PAREN", "Expect ')' after expression.");
         return { kind: "grouping", expression };
       }
     }
