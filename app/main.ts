@@ -266,6 +266,12 @@ function evaluate(expr: Expr): string | number | boolean | null {
     if (expr.operator === "/") {
       return left / right;
     }
+    if (expr.operator === "+") {
+      return left + right;
+    }
+    if (expr.operator === "-") {
+      return left - right;
+    }
   }
   throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
 }
