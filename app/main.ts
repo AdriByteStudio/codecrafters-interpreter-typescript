@@ -302,15 +302,27 @@ function evaluate(expr: Expr): string | number | boolean | null {
       return left - right;
     }
     if (expr.operator === ">") {
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operands must be numbers.");
+      }
       return left > right;
     }
     if (expr.operator === ">=") {
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operands must be numbers.");
+      }
       return left >= right;
     }
     if (expr.operator === "<") {
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operands must be numbers.");
+      }
       return left < right;
     }
     if (expr.operator === "<=") {
+      if (typeof left !== "number" || typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operands must be numbers.");
+      }
       return left <= right;
     }
     if (expr.operator === "==") {
