@@ -237,6 +237,9 @@ function evaluate(expr: Expr): string | number | boolean | null {
   if (expr.kind === "literal") {
     return expr.value;
   }
+  if (expr.kind === "grouping") {
+    return evaluate(expr.expression);
+  }
   throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
 }
 
