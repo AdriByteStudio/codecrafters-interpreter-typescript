@@ -196,6 +196,13 @@ interface VariableExpr {
   line: number;
 }
 
+interface AssignExpr {
+  kind: "assign";
+  name: string;
+  value: Expr;
+  line: number;
+}
+
 interface GroupingExpr {
   kind: "grouping";
   expression: Expr;
@@ -216,7 +223,7 @@ interface BinaryExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | GroupingExpr | UnaryExpr | BinaryExpr;
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr;
 type Value = string | number | boolean | null;
 
 function formatNumber(value: number): string {
@@ -235,6 +242,9 @@ function printExpr(expr: Expr): string {
   }
   if (expr.kind === "variable") {
     return expr.name;
+  }
+  if (expr.kind === "assign") {
+    return `(= ${expr.name} ${printExpr(expr.value)})`;
   }
   if (expr.value === null) {
     return "nil";
@@ -273,6 +283,14 @@ function evaluate(expr: Expr, environment: Map<string, Value>): Value {
       throw new RuntimeError(expr.line, `Undefined variable '${expr.name}'.`);
     }
     return environment.get(expr.name) as Value;
+  }
+  if (expr.kind === "assign") {
+    if (!environment.has(expr.name)) {
+      throw new RuntimeError(expr.line, `Undefined variable '${expr.name}'.`);
+    }
+    const value = evaluate(expr.value, environment);
+    environment.set(expr.name, value);
+    return value;
   }
   if (expr.kind === "grouping") {
     return evaluate(expr.expression, environment);
@@ -402,7 +420,7 @@ class Parser {
   }
 
   parse(): Expr {
-    return this.equality();
+    return this.assignment();
   }
 
   parseProgram(): Stmt[] {
@@ -428,11 +446,11 @@ class Parser {
     }
     if (this.tokens[this.current].type === "PRINT") {
       this.current++;
-      const expression = this.equality();
+      const expression = this.assignment();
       this.consume("SEMICOLON", "Expect ';' after value.");
       return { kind: "print", expression };
     }
-    const expression = this.equality();
+    const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
   }
@@ -443,10 +461,25 @@ class Parser {
     let initializer: Expr = { kind: "literal", value: null };
     if (this.tokens[this.current].type === "EQUAL") {
       this.current++;
-      initializer = this.equality();
+      initializer = this.assignment();
     }
     this.consume("SEMICOLON", "Expect ';' after variable declaration.");
     return { kind: "var", name: name.lexeme, initializer };
+  }
+
+  private assignment(): Expr {
+    const expr = this.equality();
+    if (this.tokens[this.current].type !== "EQUAL") {
+      return expr;
+    }
+
+    const equals = this.tokens[this.current];
+    this.current++;
+    const value = this.assignment();
+    if (expr.kind === "variable") {
+      return { kind: "assign", name: expr.name, value, line: equals.line };
+    }
+    throw new ParseError(equals, "Invalid assignment target.");
   }
 
   private equality(): Expr {
@@ -538,7 +571,7 @@ class Parser {
         return { kind: "variable", name: token.lexeme, line: token.line };
       case "LEFT_PAREN": {
         this.current++;
-        const expression = this.equality();
+        const expression = this.assignment();
         this.consume("RIGHT_PAREN", "Expect ')' after expression.");
         return { kind: "grouping", expression };
       }
