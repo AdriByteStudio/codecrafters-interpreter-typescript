@@ -235,7 +235,21 @@ class Parser {
   }
 
   parse(): Expr {
-    return this.comparison();
+    return this.equality();
+  }
+
+  private equality(): Expr {
+    let expr = this.comparison();
+    while (
+      this.tokens[this.current].type === "EQUAL_EQUAL" ||
+      this.tokens[this.current].type === "BANG_EQUAL"
+    ) {
+      const operator = this.tokens[this.current].lexeme;
+      this.current++;
+      const right = this.comparison();
+      expr = { kind: "binary", operator, left: expr, right };
+    }
+    return expr;
   }
 
   private comparison(): Expr {
@@ -306,7 +320,7 @@ class Parser {
         return { kind: "literal", value: token.literal };
       case "LEFT_PAREN": {
         this.current++;
-        const expression = this.comparison();
+        const expression = this.equality();
         this.current++; // consume RIGHT_PAREN
         return { kind: "grouping", expression };
       }
