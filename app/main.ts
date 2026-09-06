@@ -104,6 +104,10 @@ while (i < fileContent.length) {
     case "\n":
       line++;
       break;
+    case " ":
+    case "\r":
+    case "\t":
+      break;
     default:
       console.error(`[line ${line}] Error: Unexpected character: ${char}`);
       hadError = true;
