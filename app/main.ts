@@ -199,6 +199,7 @@ interface UnaryExpr {
   kind: "unary";
   operator: string;
   right: Expr;
+  line: number;
 }
 
 interface BinaryExpr {
@@ -206,6 +207,7 @@ interface BinaryExpr {
   operator: string;
   left: Expr;
   right: Expr;
+  line: number;
 }
 
 type Expr = LiteralExpr | GroupingExpr | UnaryExpr | BinaryExpr;
@@ -243,6 +245,15 @@ function isTruthy(value: string | number | boolean | null): boolean {
   return true;
 }
 
+class RuntimeError extends Error {
+  line: number;
+
+  constructor(line: number, message: string) {
+    super(message);
+    this.line = line;
+  }
+}
+
 function evaluate(expr: Expr): string | number | boolean | null {
   if (expr.kind === "literal") {
     return expr.value;
@@ -253,7 +264,10 @@ function evaluate(expr: Expr): string | number | boolean | null {
   if (expr.kind === "unary") {
     const right = evaluate(expr.right);
     if (expr.operator === "-") {
-      return -(right as number);
+      if (typeof right !== "number") {
+        throw new RuntimeError(expr.line, "Operand must be a number.");
+      }
+      return -right;
     }
     return !isTruthy(right);
   }
@@ -327,9 +341,10 @@ class Parser {
       this.tokens[this.current].type === "BANG_EQUAL"
     ) {
       const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
       this.current++;
       const right = this.comparison();
-      expr = { kind: "binary", operator, left: expr, right };
+      expr = { kind: "binary", operator, left: expr, right, line };
     }
     return expr;
   }
@@ -343,9 +358,10 @@ class Parser {
       this.tokens[this.current].type === "LESS_EQUAL"
     ) {
       const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
       this.current++;
       const right = this.term();
-      expr = { kind: "binary", operator, left: expr, right };
+      expr = { kind: "binary", operator, left: expr, right, line };
     }
     return expr;
   }
@@ -354,9 +370,10 @@ class Parser {
     let expr = this.factor();
     while (this.tokens[this.current].type === "PLUS" || this.tokens[this.current].type === "MINUS") {
       const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
       this.current++;
       const right = this.factor();
-      expr = { kind: "binary", operator, left: expr, right };
+      expr = { kind: "binary", operator, left: expr, right, line };
     }
     return expr;
   }
@@ -365,9 +382,10 @@ class Parser {
     let expr = this.unary();
     while (this.tokens[this.current].type === "SLASH" || this.tokens[this.current].type === "STAR") {
       const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
       this.current++;
       const right = this.unary();
-      expr = { kind: "binary", operator, left: expr, right };
+      expr = { kind: "binary", operator, left: expr, right, line };
     }
     return expr;
   }
@@ -377,7 +395,7 @@ class Parser {
     if (token.type === "BANG" || token.type === "MINUS") {
       this.current++;
       const right = this.unary();
-      return { kind: "unary", operator: token.lexeme, right };
+      return { kind: "unary", operator: token.lexeme, right, line: token.line };
     }
     return this.primary();
   }
@@ -460,6 +478,11 @@ if (command === "tokenize") {
     if (error instanceof ParseError) {
       console.error(error.message);
       process.exit(65);
+    }
+    if (error instanceof RuntimeError) {
+      console.error(error.message);
+      console.error(`[line ${error.line}]`);
+      process.exit(70);
     }
     throw error;
   }
