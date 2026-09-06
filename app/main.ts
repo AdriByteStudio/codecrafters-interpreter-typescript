@@ -187,7 +187,7 @@ function scan(fileContent: string): { tokens: Token[]; hadError: boolean } {
 
 interface LiteralExpr {
   kind: "literal";
-  value: string | null;
+  value: string | number | boolean | null;
 }
 
 interface GroupingExpr {
@@ -210,6 +210,10 @@ interface BinaryExpr {
 
 type Expr = LiteralExpr | GroupingExpr | UnaryExpr | BinaryExpr;
 
+function formatNumber(value: number): string {
+  return Number.isInteger(value) ? value.toFixed(1) : String(value);
+}
+
 function printExpr(expr: Expr): string {
   if (expr.kind === "grouping") {
     return `(group ${printExpr(expr.expression)})`;
@@ -223,7 +227,24 @@ function printExpr(expr: Expr): string {
   if (expr.value === null) {
     return "nil";
   }
-  return expr.value;
+  if (typeof expr.value === "number") {
+    return formatNumber(expr.value);
+  }
+  return String(expr.value);
+}
+
+function evaluate(expr: Expr): string | number | boolean | null {
+  if (expr.kind === "literal") {
+    return expr.value;
+  }
+  throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
+}
+
+function stringify(value: string | number | boolean | null): string {
+  if (value === null) {
+    return "nil";
+  }
+  return String(value);
 }
 
 class ParseError extends Error {
@@ -312,16 +333,16 @@ class Parser {
     switch (token.type) {
       case "FALSE":
         this.current++;
-        return { kind: "literal", value: "false" };
+        return { kind: "literal", value: false };
       case "TRUE":
         this.current++;
-        return { kind: "literal", value: "true" };
+        return { kind: "literal", value: true };
       case "NIL":
         this.current++;
         return { kind: "literal", value: null };
       case "NUMBER":
         this.current++;
-        return { kind: "literal", value: token.literal };
+        return { kind: "literal", value: Number(token.lexeme) };
       case "STRING":
         this.current++;
         return { kind: "literal", value: token.literal };
@@ -345,7 +366,7 @@ if (args.length < 2) {
 
 const command: string = args[0];
 
-if (command !== "tokenize" && command !== "parse") {
+if (command !== "tokenize" && command !== "parse" && command !== "evaluate") {
   console.error(`Usage: Unknown command: ${command}`);
   process.exit(1);
 }
@@ -364,11 +385,23 @@ if (command === "tokenize") {
   if (hadError) {
     process.exit(65);
   }
-} else {
+} else if (command === "parse") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
     console.log(printExpr(expr));
+  } catch (error) {
+    if (error instanceof ParseError) {
+      console.error(error.message);
+      process.exit(65);
+    }
+    throw error;
+  }
+} else {
+  const parser = new Parser(tokens);
+  try {
+    const expr = parser.parse();
+    console.log(stringify(evaluate(expr)));
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
