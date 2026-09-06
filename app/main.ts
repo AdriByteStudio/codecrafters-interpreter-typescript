@@ -30,6 +30,17 @@ function isDigit(char: string | undefined): boolean {
   return char !== undefined && char >= "0" && char <= "9";
 }
 
+function isAlpha(char: string | undefined): boolean {
+  return (
+    char !== undefined &&
+    ((char >= "a" && char <= "z") || (char >= "A" && char <= "Z") || char === "_")
+  );
+}
+
+function isAlphaNumeric(char: string | undefined): boolean {
+  return isAlpha(char) || isDigit(char);
+}
+
 while (i < fileContent.length) {
   const char = fileContent[i];
   switch (char) {
@@ -146,6 +157,13 @@ while (i < fileContent.length) {
         const value = Number(lexeme);
         const literal = Number.isInteger(value) ? value.toFixed(1) : String(value);
         tokens.push(`NUMBER ${lexeme} ${literal}`);
+      } else if (isAlpha(char)) {
+        const start = i;
+        while (isAlphaNumeric(fileContent[i + 1])) {
+          i++;
+        }
+        const lexeme = fileContent.slice(start, i + 1);
+        tokens.push(`IDENTIFIER ${lexeme} null`);
       } else {
         console.error(`[line ${line}] Error: Unexpected character: ${char}`);
         hadError = true;
