@@ -235,7 +235,18 @@ class Parser {
   }
 
   parse(): Expr {
-    return this.factor();
+    return this.term();
+  }
+
+  private term(): Expr {
+    let expr = this.factor();
+    while (this.tokens[this.current].type === "PLUS" || this.tokens[this.current].type === "MINUS") {
+      const operator = this.tokens[this.current].lexeme;
+      this.current++;
+      const right = this.factor();
+      expr = { kind: "binary", operator, left: expr, right };
+    }
+    return expr;
   }
 
   private factor(): Expr {
@@ -279,7 +290,7 @@ class Parser {
         return { kind: "literal", value: token.literal };
       case "LEFT_PAREN": {
         this.current++;
-        const expression = this.factor();
+        const expression = this.term();
         this.current++; // consume RIGHT_PAREN
         return { kind: "grouping", expression };
       }
