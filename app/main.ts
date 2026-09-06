@@ -257,6 +257,16 @@ function evaluate(expr: Expr): string | number | boolean | null {
     }
     return !isTruthy(right);
   }
+  if (expr.kind === "binary") {
+    const left = evaluate(expr.left) as number;
+    const right = evaluate(expr.right) as number;
+    if (expr.operator === "*") {
+      return left * right;
+    }
+    if (expr.operator === "/") {
+      return left / right;
+    }
+  }
   throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
 }
 
