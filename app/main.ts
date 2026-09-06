@@ -31,6 +31,12 @@ for (const char of fileContent) {
     case ")":
       tokens.push("RIGHT_PAREN ) null");
       break;
+    case "{":
+      tokens.push("LEFT_BRACE { null");
+      break;
+    case "}":
+      tokens.push("RIGHT_BRACE } null");
+      break;
   }
 }
 
