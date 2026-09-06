@@ -226,6 +226,9 @@ class Parser {
       case "NUMBER":
         this.current++;
         return { kind: "literal", value: token.literal };
+      case "STRING":
+        this.current++;
+        return { kind: "literal", value: token.literal };
     }
     throw new Error(`Unexpected token: ${token.lexeme}`);
   }
