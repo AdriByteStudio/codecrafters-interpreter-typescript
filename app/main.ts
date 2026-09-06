@@ -343,9 +343,29 @@ function stringify(value: string | number | boolean | null): string {
 }
 
 class ParseError extends Error {
-  constructor(token: Token) {
+  constructor(token: Token, message = "Expect expression.") {
     const where = token.type === "EOF" ? "end" : `'${token.lexeme}'`;
-    super(`[line ${token.line}] Error at ${where}: Expect expression.`);
+    super(`[line ${token.line}] Error at ${where}: ${message}`);
+  }
+}
+
+interface PrintStmt {
+  kind: "print";
+  expression: Expr;
+}
+
+interface ExpressionStmt {
+  kind: "expression";
+  expression: Expr;
+}
+
+type Stmt = PrintStmt | ExpressionStmt;
+
+function execute(stmt: Stmt): void {
+  if (stmt.kind === "print") {
+    console.log(stringify(evaluate(stmt.expression)));
+  } else {
+    evaluate(stmt.expression);
   }
 }
 
@@ -359,6 +379,35 @@ class Parser {
 
   parse(): Expr {
     return this.equality();
+  }
+
+  parseProgram(): Stmt[] {
+    const statements: Stmt[] = [];
+    while (this.tokens[this.current].type !== "EOF") {
+      statements.push(this.statement());
+    }
+    return statements;
+  }
+
+  private consume(type: string, message: string): Token {
+    const token = this.tokens[this.current];
+    if (token.type !== type) {
+      throw new ParseError(token, message);
+    }
+    this.current++;
+    return token;
+  }
+
+  private statement(): Stmt {
+    if (this.tokens[this.current].type === "PRINT") {
+      this.current++;
+      const expression = this.equality();
+      this.consume("SEMICOLON", "Expect ';' after value.");
+      return { kind: "print", expression };
+    }
+    const expression = this.equality();
+    this.consume("SEMICOLON", "Expect ';' after expression.");
+    return { kind: "expression", expression };
   }
 
   private equality(): Expr {
@@ -465,7 +514,7 @@ if (args.length < 2) {
 
 const command: string = args[0];
 
-if (command !== "tokenize" && command !== "parse" && command !== "evaluate") {
+if (command !== "tokenize" && command !== "parse" && command !== "evaluate" && command !== "run") {
   console.error(`Usage: Unknown command: ${command}`);
   process.exit(1);
 }
@@ -496,11 +545,30 @@ if (command === "tokenize") {
     }
     throw error;
   }
-} else {
+} else if (command === "evaluate") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
     console.log(stringify(evaluate(expr)));
+  } catch (error) {
+    if (error instanceof ParseError) {
+      console.error(error.message);
+      process.exit(65);
+    }
+    if (error instanceof RuntimeError) {
+      console.error(error.message);
+      console.error(`[line ${error.line}]`);
+      process.exit(70);
+    }
+    throw error;
+  }
+} else {
+  const parser = new Parser(tokens);
+  try {
+    const statements = parser.parseProgram();
+    for (const statement of statements) {
+      execute(statement);
+    }
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
