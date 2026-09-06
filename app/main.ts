@@ -75,6 +75,22 @@ while (i < fileContent.length) {
         tokens.push("BANG ! null");
       }
       break;
+    case "<":
+      if (fileContent[i + 1] === "=") {
+        tokens.push("LESS_EQUAL <= null");
+        i++;
+      } else {
+        tokens.push("LESS < null");
+      }
+      break;
+    case ">":
+      if (fileContent[i + 1] === "=") {
+        tokens.push("GREATER_EQUAL >= null");
+        i++;
+      } else {
+        tokens.push("GREATER > null");
+      }
+      break;
     case "\n":
       line++;
       break;
