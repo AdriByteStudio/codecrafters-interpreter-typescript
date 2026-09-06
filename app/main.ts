@@ -37,6 +37,24 @@ for (const char of fileContent) {
     case "}":
       tokens.push("RIGHT_BRACE } null");
       break;
+    case ",":
+      tokens.push("COMMA , null");
+      break;
+    case ".":
+      tokens.push("DOT . null");
+      break;
+    case "-":
+      tokens.push("MINUS - null");
+      break;
+    case "+":
+      tokens.push("PLUS + null");
+      break;
+    case ";":
+      tokens.push("SEMICOLON ; null");
+      break;
+    case "*":
+      tokens.push("STAR * null");
+      break;
   }
 }
 
