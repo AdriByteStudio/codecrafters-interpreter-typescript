@@ -24,8 +24,10 @@ const fileContent: string = fs.readFileSync(filename, "utf8");
 const tokens: string[] = [];
 let hadError = false;
 let line = 1;
+let i = 0;
 
-for (const char of fileContent) {
+while (i < fileContent.length) {
+  const char = fileContent[i];
   switch (char) {
     case "(":
       tokens.push("LEFT_PAREN ( null");
@@ -57,6 +59,14 @@ for (const char of fileContent) {
     case "*":
       tokens.push("STAR * null");
       break;
+    case "=":
+      if (fileContent[i + 1] === "=") {
+        tokens.push("EQUAL_EQUAL == null");
+        i++;
+      } else {
+        tokens.push("EQUAL = null");
+      }
+      break;
     case "\n":
       line++;
       break;
@@ -65,6 +75,7 @@ for (const char of fileContent) {
       hadError = true;
       break;
   }
+  i++;
 }
 
 tokens.push("EOF  null");
