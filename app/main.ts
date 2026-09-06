@@ -91,6 +91,16 @@ while (i < fileContent.length) {
         tokens.push("GREATER > null");
       }
       break;
+    case "/":
+      if (fileContent[i + 1] === "/") {
+        while (i < fileContent.length && fileContent[i] !== "\n") {
+          i++;
+        }
+        i--;
+      } else {
+        tokens.push("SLASH / null");
+      }
+      break;
     case "\n":
       line++;
       break;
