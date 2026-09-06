@@ -269,6 +269,9 @@ function evaluate(expr: Expr, environment: Map<string, Value>): Value {
     return expr.value;
   }
   if (expr.kind === "variable") {
+    if (!environment.has(expr.name)) {
+      throw new RuntimeError(expr.line, `Undefined variable '${expr.name}'.`);
+    }
     return environment.get(expr.name) as Value;
   }
   if (expr.kind === "grouping") {
