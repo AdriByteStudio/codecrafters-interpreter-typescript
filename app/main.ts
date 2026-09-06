@@ -190,9 +190,17 @@ interface LiteralExpr {
   value: string | null;
 }
 
-type Expr = LiteralExpr;
+interface GroupingExpr {
+  kind: "grouping";
+  expression: Expr;
+}
+
+type Expr = LiteralExpr | GroupingExpr;
 
 function printExpr(expr: Expr): string {
+  if (expr.kind === "grouping") {
+    return `(group ${printExpr(expr.expression)})`;
+  }
   if (expr.value === null) {
     return "nil";
   }
@@ -229,6 +237,12 @@ class Parser {
       case "STRING":
         this.current++;
         return { kind: "literal", value: token.literal };
+      case "LEFT_PAREN": {
+        this.current++;
+        const expression = this.primary();
+        this.current++; // consume RIGHT_PAREN
+        return { kind: "grouping", expression };
+      }
     }
     throw new Error(`Unexpected token: ${token.lexeme}`);
   }
