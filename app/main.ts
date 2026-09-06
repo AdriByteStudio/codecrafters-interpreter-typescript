@@ -67,6 +67,14 @@ while (i < fileContent.length) {
         tokens.push("EQUAL = null");
       }
       break;
+    case "!":
+      if (fileContent[i + 1] === "=") {
+        tokens.push("BANG_EQUAL != null");
+        i++;
+      } else {
+        tokens.push("BANG ! null");
+      }
+      break;
     case "\n":
       line++;
       break;
