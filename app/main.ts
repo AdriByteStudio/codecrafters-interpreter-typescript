@@ -187,7 +187,7 @@ function scan(fileContent: string): { tokens: Token[]; hadError: boolean } {
 
 interface LiteralExpr {
   kind: "literal";
-  value: string | number | boolean | null;
+  value: string | null;
 }
 
 type Expr = LiteralExpr;
@@ -196,7 +196,7 @@ function printExpr(expr: Expr): string {
   if (expr.value === null) {
     return "nil";
   }
-  return String(expr.value);
+  return expr.value;
 }
 
 class Parser {
@@ -216,13 +216,16 @@ class Parser {
     switch (token.type) {
       case "FALSE":
         this.current++;
-        return { kind: "literal", value: false };
+        return { kind: "literal", value: "false" };
       case "TRUE":
         this.current++;
-        return { kind: "literal", value: true };
+        return { kind: "literal", value: "true" };
       case "NIL":
         this.current++;
         return { kind: "literal", value: null };
+      case "NUMBER":
+        this.current++;
+        return { kind: "literal", value: token.literal };
     }
     throw new Error(`Unexpected token: ${token.lexeme}`);
   }
