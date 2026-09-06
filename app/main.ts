@@ -108,6 +108,24 @@ while (i < fileContent.length) {
     case "\r":
     case "\t":
       break;
+    case '"': {
+      const start = i;
+      i++;
+      while (i < fileContent.length && fileContent[i] !== '"') {
+        if (fileContent[i] === "\n") {
+          line++;
+        }
+        i++;
+      }
+      if (i >= fileContent.length) {
+        console.error(`[line ${line}] Error: Unterminated string.`);
+        hadError = true;
+      } else {
+        const value = fileContent.slice(start + 1, i);
+        tokens.push(`STRING "${value}" ${value}`);
+      }
+      break;
+    }
     default:
       console.error(`[line ${line}] Error: Unexpected character: ${char}`);
       hadError = true;
