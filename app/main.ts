@@ -190,6 +190,12 @@ interface LiteralExpr {
   value: string | number | boolean | null;
 }
 
+interface VariableExpr {
+  kind: "variable";
+  name: string;
+  line: number;
+}
+
 interface GroupingExpr {
   kind: "grouping";
   expression: Expr;
@@ -210,7 +216,8 @@ interface BinaryExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | GroupingExpr | UnaryExpr | BinaryExpr;
+type Expr = LiteralExpr | VariableExpr | GroupingExpr | UnaryExpr | BinaryExpr;
+type Value = string | number | boolean | null;
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(1) : String(value);
@@ -226,6 +233,9 @@ function printExpr(expr: Expr): string {
   if (expr.kind === "binary") {
     return `(${expr.operator} ${printExpr(expr.left)} ${printExpr(expr.right)})`;
   }
+  if (expr.kind === "variable") {
+    return expr.name;
+  }
   if (expr.value === null) {
     return "nil";
   }
@@ -235,7 +245,7 @@ function printExpr(expr: Expr): string {
   return String(expr.value);
 }
 
-function isTruthy(value: string | number | boolean | null): boolean {
+function isTruthy(value: Value): boolean {
   if (value === null) {
     return false;
   }
@@ -254,15 +264,18 @@ class RuntimeError extends Error {
   }
 }
 
-function evaluate(expr: Expr): string | number | boolean | null {
+function evaluate(expr: Expr, environment: Map<string, Value>): Value {
   if (expr.kind === "literal") {
     return expr.value;
   }
+  if (expr.kind === "variable") {
+    return environment.get(expr.name) as Value;
+  }
   if (expr.kind === "grouping") {
-    return evaluate(expr.expression);
+    return evaluate(expr.expression, environment);
   }
   if (expr.kind === "unary") {
-    const right = evaluate(expr.right);
+    const right = evaluate(expr.right, environment);
     if (expr.operator === "-") {
       if (typeof right !== "number") {
         throw new RuntimeError(expr.line, "Operand must be a number.");
@@ -272,8 +285,8 @@ function evaluate(expr: Expr): string | number | boolean | null {
     return !isTruthy(right);
   }
   if (expr.kind === "binary") {
-    const left = evaluate(expr.left) as number;
-    const right = evaluate(expr.right) as number;
+    const left = evaluate(expr.left, environment);
+    const right = evaluate(expr.right, environment);
     if (expr.operator === "*") {
       if (typeof left !== "number" || typeof right !== "number") {
         throw new RuntimeError(expr.line, "Operands must be numbers.");
@@ -335,7 +348,7 @@ function evaluate(expr: Expr): string | number | boolean | null {
   throw new Error(`Cannot evaluate expression of kind: ${expr.kind}`);
 }
 
-function stringify(value: string | number | boolean | null): string {
+function stringify(value: Value): string {
   if (value === null) {
     return "nil";
   }
@@ -359,13 +372,21 @@ interface ExpressionStmt {
   expression: Expr;
 }
 
-type Stmt = PrintStmt | ExpressionStmt;
+interface VarStmt {
+  kind: "var";
+  name: string;
+  initializer: Expr;
+}
 
-function execute(stmt: Stmt): void {
+type Stmt = PrintStmt | ExpressionStmt | VarStmt;
+
+function execute(stmt: Stmt, environment: Map<string, Value>): void {
   if (stmt.kind === "print") {
-    console.log(stringify(evaluate(stmt.expression)));
+    console.log(stringify(evaluate(stmt.expression, environment)));
+  } else if (stmt.kind === "var") {
+    environment.set(stmt.name, evaluate(stmt.initializer, environment));
   } else {
-    evaluate(stmt.expression);
+    evaluate(stmt.expression, environment);
   }
 }
 
@@ -399,6 +420,9 @@ class Parser {
   }
 
   private statement(): Stmt {
+    if (this.tokens[this.current].type === "VAR") {
+      return this.varDeclaration();
+    }
     if (this.tokens[this.current].type === "PRINT") {
       this.current++;
       const expression = this.equality();
@@ -408,6 +432,15 @@ class Parser {
     const expression = this.equality();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private varDeclaration(): VarStmt {
+    this.current++;
+    const name = this.consume("IDENTIFIER", "Expect variable name.");
+    this.consume("EQUAL", "Expect '=' after variable name.");
+    const initializer = this.equality();
+    this.consume("SEMICOLON", "Expect ';' after variable declaration.");
+    return { kind: "var", name: name.lexeme, initializer };
   }
 
   private equality(): Expr {
@@ -494,6 +527,9 @@ class Parser {
       case "STRING":
         this.current++;
         return { kind: "literal", value: token.literal };
+      case "IDENTIFIER":
+        this.current++;
+        return { kind: "variable", name: token.lexeme, line: token.line };
       case "LEFT_PAREN": {
         this.current++;
         const expression = this.equality();
@@ -549,7 +585,7 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
-    console.log(stringify(evaluate(expr)));
+    console.log(stringify(evaluate(expr, new Map())));
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
@@ -566,8 +602,9 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const statements = parser.parseProgram();
+    const environment = new Map<string, Value>();
     for (const statement of statements) {
-      execute(statement);
+      execute(statement, environment);
     }
   } catch (error) {
     if (error instanceof ParseError) {
