@@ -226,6 +226,13 @@ function printExpr(expr: Expr): string {
   return expr.value;
 }
 
+class ParseError extends Error {
+  constructor(token: Token) {
+    const where = token.type === "EOF" ? "end" : `'${token.lexeme}'`;
+    super(`[line ${token.line}] Error at ${where}: Expect expression.`);
+  }
+}
+
 class Parser {
   private tokens: Token[];
   private current = 0;
@@ -325,7 +332,7 @@ class Parser {
         return { kind: "grouping", expression };
       }
     }
-    throw new Error(`Unexpected token: ${token.lexeme}`);
+    throw new ParseError(token);
   }
 }
 
@@ -359,6 +366,14 @@ if (command === "tokenize") {
   }
 } else {
   const parser = new Parser(tokens);
-  const expr = parser.parse();
-  console.log(printExpr(expr));
+  try {
+    const expr = parser.parse();
+    console.log(printExpr(expr));
+  } catch (error) {
+    if (error instanceof ParseError) {
+      console.error(error.message);
+      process.exit(65);
+    }
+    throw error;
+  }
 }
