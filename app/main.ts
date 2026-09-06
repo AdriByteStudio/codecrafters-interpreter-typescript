@@ -22,6 +22,8 @@ const filename: string = args[1];
 const fileContent: string = fs.readFileSync(filename, "utf8");
 
 const tokens: string[] = [];
+let hadError = false;
+let line = 1;
 
 for (const char of fileContent) {
   switch (char) {
@@ -55,9 +57,20 @@ for (const char of fileContent) {
     case "*":
       tokens.push("STAR * null");
       break;
+    case "\n":
+      line++;
+      break;
+    default:
+      console.error(`[line ${line}] Error: Unexpected character: ${char}`);
+      hadError = true;
+      break;
   }
 }
 
 tokens.push("EOF  null");
 
 console.log(tokens.join("\n"));
+
+if (hadError) {
+  process.exit(65);
+}
