@@ -26,6 +26,10 @@ let hadError = false;
 let line = 1;
 let i = 0;
 
+function isDigit(char: string | undefined): boolean {
+  return char !== undefined && char >= "0" && char <= "9";
+}
+
 while (i < fileContent.length) {
   const char = fileContent[i];
   switch (char) {
@@ -127,8 +131,25 @@ while (i < fileContent.length) {
       break;
     }
     default:
-      console.error(`[line ${line}] Error: Unexpected character: ${char}`);
-      hadError = true;
+      if (isDigit(char)) {
+        const start = i;
+        while (isDigit(fileContent[i + 1])) {
+          i++;
+        }
+        if (fileContent[i + 1] === "." && isDigit(fileContent[i + 2])) {
+          i++;
+          while (isDigit(fileContent[i + 1])) {
+            i++;
+          }
+        }
+        const lexeme = fileContent.slice(start, i + 1);
+        const value = Number(lexeme);
+        const literal = Number.isInteger(value) ? value.toFixed(1) : String(value);
+        tokens.push(`NUMBER ${lexeme} ${literal}`);
+      } else {
+        console.error(`[line ${line}] Error: Unexpected character: ${char}`);
+        hadError = true;
+      }
       break;
   }
   i++;
