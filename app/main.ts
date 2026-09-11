@@ -584,6 +584,7 @@ interface VarStmt {
   kind: "var";
   name: string;
   initializer: Expr;
+  line: number;
 }
 
 interface BlockStmt {
@@ -616,7 +617,9 @@ interface FunctionStmt {
   kind: "function";
   name: string;
   params: string[];
+  paramLines: number[];
   body: Stmt[];
+  line: number;
 }
 
 interface ReturnStmt {
@@ -855,22 +858,27 @@ class Parser {
   }
 
   private functionDeclaration(): FunctionStmt {
+    const line = this.tokens[this.current].line;
     this.current++;
     const name = this.consume("IDENTIFIER", "Expect function name.");
     this.consume("LEFT_PAREN", "Expect '(' after function name.");
     const params: string[] = [];
+    const paramLines: number[] = [];
     if (this.tokens[this.current].type !== "RIGHT_PAREN") {
       do {
-        params.push(this.consume("IDENTIFIER", "Expect parameter name.").lexeme);
+        const param = this.consume("IDENTIFIER", "Expect parameter name.");
+        params.push(param.lexeme);
+        paramLines.push(param.line);
       } while (this.tokens[this.current].type === "COMMA" && (this.current++, true));
     }
     this.consume("RIGHT_PAREN", "Expect ')' after parameters.");
     this.consume("LEFT_BRACE", "Expect '{' before function body.");
     const body = this.block();
-    return { kind: "function", name: name.lexeme, params, body };
+    return { kind: "function", name: name.lexeme, params, paramLines, body, line };
   }
 
   private varDeclaration(): VarStmt {
+    const line = this.tokens[this.current].line;
     this.current++;
     const name = this.consume("IDENTIFIER", "Expect variable name.");
     let initializer: Expr = { kind: "literal", value: null };
@@ -879,7 +887,7 @@ class Parser {
       initializer = this.assignment();
     }
     this.consume("SEMICOLON", "Expect ';' after variable declaration.");
-    return { kind: "var", name: name.lexeme, initializer };
+    return { kind: "var", name: name.lexeme, initializer, line };
   }
 
   private assignment(): Expr {
@@ -1054,11 +1062,11 @@ class Resolver {
       this.resolve(stmt.statements);
       this.endScope();
     } else if (stmt.kind === "var") {
-      this.declare(stmt.name);
+      this.declare(stmt.name, stmt.line);
       this.resolveExpr(stmt.initializer);
       this.define(stmt.name);
     } else if (stmt.kind === "function") {
-      this.declare(stmt.name);
+      this.declare(stmt.name, stmt.line);
       this.define(stmt.name);
       this.resolveFunction(stmt);
     } else if (stmt.kind === "expression") {
@@ -1133,9 +1141,9 @@ class Resolver {
     const enclosingFunction = this.currentFunction;
     this.currentFunction = "function";
     this.beginScope();
-    for (const param of stmt.params) {
-      this.declare(param);
-      this.define(param);
+    for (let i = 0; i < stmt.params.length; i++) {
+      this.declare(stmt.params[i], stmt.paramLines[i]);
+      this.define(stmt.params[i]);
     }
     this.resolve(stmt.body);
     this.endScope();
@@ -1150,11 +1158,16 @@ class Resolver {
     this.scopes.pop();
   }
 
-  private declare(name: string): void {
+  private declare(name: string, line: number): void {
     if (this.scopes.length === 0) {
       return;
     }
-    this.scopes[this.scopes.length - 1].set(name, false);
+    const scope = this.scopes[this.scopes.length - 1];
+    if (scope.has(name)) {
+      this.hadError = true;
+      console.error(`[line ${line}] Error at '${name}': Already a variable with this name in this scope.`);
+    }
+    scope.set(name, false);
   }
 
   private define(name: string): void {
