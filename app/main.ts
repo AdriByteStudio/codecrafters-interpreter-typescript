@@ -223,7 +223,15 @@ interface BinaryExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr;
+interface LogicalExpr {
+  kind: "logical";
+  operator: string;
+  left: Expr;
+  right: Expr;
+  line: number;
+}
+
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr;
 type Value = string | number | boolean | null;
 
 function formatNumber(value: number): string {
@@ -238,6 +246,9 @@ function printExpr(expr: Expr): string {
     return `(${expr.operator} ${printExpr(expr.right)})`;
   }
   if (expr.kind === "binary") {
+    return `(${expr.operator} ${printExpr(expr.left)} ${printExpr(expr.right)})`;
+  }
+  if (expr.kind === "logical") {
     return `(${expr.operator} ${printExpr(expr.left)} ${printExpr(expr.right)})`;
   }
   if (expr.kind === "variable") {
@@ -323,6 +334,15 @@ function evaluate(expr: Expr, environment: Environment): Value {
   }
   if (expr.kind === "grouping") {
     return evaluate(expr.expression, environment);
+  }
+  if (expr.kind === "logical") {
+    const left = evaluate(expr.left, environment);
+    if (expr.operator === "or") {
+      if (isTruthy(left)) {
+        return left;
+      }
+      return evaluate(expr.right, environment);
+    }
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -550,7 +570,7 @@ class Parser {
   }
 
   private assignment(): Expr {
-    const expr = this.equality();
+    const expr = this.or();
     if (this.tokens[this.current].type !== "EQUAL") {
       return expr;
     }
@@ -562,6 +582,18 @@ class Parser {
       return { kind: "assign", name: expr.name, value, line: equals.line };
     }
     throw new ParseError(equals, "Invalid assignment target.");
+  }
+
+  private or(): Expr {
+    let expr = this.equality();
+    while (this.tokens[this.current].type === "OR") {
+      const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
+      this.current++;
+      const right = this.equality();
+      expr = { kind: "logical", operator, left: expr, right, line };
+    }
+    return expr;
   }
 
   private equality(): Expr {
