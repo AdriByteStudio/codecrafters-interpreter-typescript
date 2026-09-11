@@ -521,6 +521,7 @@ function execute(stmt: Stmt, environment: Environment): void {
 class Parser {
   private tokens: Token[];
   private current = 0;
+  hadError = false;
 
   constructor(tokens: Token[]) {
     this.tokens = tokens;
@@ -533,9 +534,52 @@ class Parser {
   parseProgram(): Stmt[] {
     const statements: Stmt[] = [];
     while (this.tokens[this.current].type !== "EOF") {
-      statements.push(this.statement());
+      const statement = this.declaration();
+      if (statement !== null) {
+        statements.push(statement);
+      }
     }
     return statements;
+  }
+
+  private declaration(): Stmt | null {
+    try {
+      if (this.tokens[this.current].type === "VAR") {
+        return this.varDeclaration();
+      }
+      return this.statement();
+    } catch (error) {
+      if (error instanceof ParseError) {
+        this.hadError = true;
+        console.error(error.message);
+        this.synchronize();
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private synchronize(): void {
+    this.current++;
+    while (this.tokens[this.current].type !== "EOF") {
+      if (this.tokens[this.current - 1].type === "SEMICOLON") {
+        return;
+      }
+      const type = this.tokens[this.current].type;
+      if (
+        type === "CLASS" ||
+        type === "FUN" ||
+        type === "VAR" ||
+        type === "FOR" ||
+        type === "IF" ||
+        type === "WHILE" ||
+        type === "PRINT" ||
+        type === "RETURN"
+      ) {
+        return;
+      }
+      this.current++;
+    }
   }
 
   private consume(type: string, message: string): Token {
@@ -559,9 +603,6 @@ class Parser {
     }
     if (this.tokens[this.current].type === "FOR") {
       return this.forStatement();
-    }
-    if (this.tokens[this.current].type === "VAR") {
-      return this.varDeclaration();
     }
     if (this.tokens[this.current].type === "PRINT") {
       this.current++;
@@ -632,7 +673,10 @@ class Parser {
     this.current++;
     const statements: Stmt[] = [];
     while (this.tokens[this.current].type !== "RIGHT_BRACE" && this.tokens[this.current].type !== "EOF") {
-      statements.push(this.statement());
+      const statement = this.declaration();
+      if (statement !== null) {
+        statements.push(statement);
+      }
     }
     this.consume("RIGHT_BRACE", "Expect '}' .");
     return { kind: "block", statements };
@@ -846,17 +890,16 @@ if (command === "tokenize") {
   }
 } else {
   const parser = new Parser(tokens);
+  const statements = parser.parseProgram();
+  if (parser.hadError) {
+    process.exit(65);
+  }
+  const environment = new Environment();
   try {
-    const statements = parser.parseProgram();
-    const environment = new Environment();
     for (const statement of statements) {
       execute(statement, environment);
     }
   } catch (error) {
-    if (error instanceof ParseError) {
-      console.error(error.message);
-      process.exit(65);
-    }
     if (error instanceof RuntimeError) {
       console.error(error.message);
       console.error(`[line ${error.line}]`);
