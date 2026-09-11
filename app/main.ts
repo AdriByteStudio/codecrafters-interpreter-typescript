@@ -303,6 +303,26 @@ class LoxFunction implements LoxCallable {
   }
 }
 
+class LoxClass implements LoxCallable {
+  private name: string;
+
+  constructor(name: string) {
+    this.name = name;
+  }
+
+  arity(): number {
+    return 0;
+  }
+
+  call(_args: Value[]): Value {
+    return null;
+  }
+
+  toString(): string {
+    return this.name;
+  }
+}
+
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(1) : String(value);
 }
@@ -628,7 +648,14 @@ interface ReturnStmt {
   line: number;
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt | FunctionStmt | ReturnStmt;
+interface ClassStmt {
+  kind: "class";
+  name: string;
+  methods: FunctionStmt[];
+  line: number;
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt | FunctionStmt | ReturnStmt | ClassStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -664,6 +691,9 @@ function execute(stmt: Stmt, environment: Environment): void {
   } else if (stmt.kind === "function") {
     const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment);
     environment.define(stmt.name, fn);
+  } else if (stmt.kind === "class") {
+    const cls = new LoxClass(stmt.name);
+    environment.define(stmt.name, cls);
   } else if (stmt.kind === "return") {
     const value = stmt.value !== null ? evaluate(stmt.value, environment) : null;
     throw new ReturnSignal(value);
@@ -702,6 +732,9 @@ class Parser {
 
   private declaration(): Stmt | null {
     try {
+      if (this.tokens[this.current].type === "CLASS") {
+        return this.classDeclaration();
+      }
       if (this.tokens[this.current].type === "FUN") {
         return this.functionDeclaration();
       }
@@ -858,10 +891,14 @@ class Parser {
   }
 
   private functionDeclaration(): FunctionStmt {
+    this.current++; // consume 'fun'
+    return this.functionBody("function");
+  }
+
+  private functionBody(kind: string): FunctionStmt {
     const line = this.tokens[this.current].line;
-    this.current++;
-    const name = this.consume("IDENTIFIER", "Expect function name.");
-    this.consume("LEFT_PAREN", "Expect '(' after function name.");
+    const name = this.consume("IDENTIFIER", `Expect ${kind} name.`);
+    this.consume("LEFT_PAREN", `Expect '(' after ${kind} name.`);
     const params: string[] = [];
     const paramLines: number[] = [];
     if (this.tokens[this.current].type !== "RIGHT_PAREN") {
@@ -875,6 +912,19 @@ class Parser {
     this.consume("LEFT_BRACE", "Expect '{' before function body.");
     const body = this.block();
     return { kind: "function", name: name.lexeme, params, paramLines, body, line };
+  }
+
+  private classDeclaration(): ClassStmt {
+    const line = this.tokens[this.current].line;
+    this.current++; // consume 'class'
+    const name = this.consume("IDENTIFIER", "Expect class name.");
+    this.consume("LEFT_BRACE", "Expect '{' before class body.");
+    const methods: FunctionStmt[] = [];
+    while (this.tokens[this.current].type !== "RIGHT_BRACE" && this.tokens[this.current].type !== "EOF") {
+      methods.push(this.functionBody("method"));
+    }
+    this.consume("RIGHT_BRACE", "Expect '}' after class body.");
+    return { kind: "class", name: name.lexeme, methods, line };
   }
 
   private varDeclaration(): VarStmt {
@@ -1069,6 +1119,12 @@ class Resolver {
       this.declare(stmt.name, stmt.line);
       this.define(stmt.name);
       this.resolveFunction(stmt);
+    } else if (stmt.kind === "class") {
+      this.declare(stmt.name, stmt.line);
+      this.define(stmt.name);
+      for (const method of stmt.methods) {
+        this.resolveFunction(method);
+      }
     } else if (stmt.kind === "expression") {
       this.resolveExpr(stmt.expression);
     } else if (stmt.kind === "if") {
