@@ -472,7 +472,15 @@ interface WhileStmt {
   body: Stmt;
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt;
+interface ForStmt {
+  kind: "for";
+  initializer: Stmt | null;
+  condition: Expr | null;
+  increment: Expr | null;
+  body: Stmt;
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -493,6 +501,17 @@ function execute(stmt: Stmt, environment: Environment): void {
   } else if (stmt.kind === "while") {
     while (isTruthy(evaluate(stmt.condition, environment))) {
       execute(stmt.body, environment);
+    }
+  } else if (stmt.kind === "for") {
+    const forEnvironment = new Environment(environment);
+    if (stmt.initializer !== null) {
+      execute(stmt.initializer, forEnvironment);
+    }
+    while (stmt.condition === null || isTruthy(evaluate(stmt.condition, forEnvironment))) {
+      execute(stmt.body, forEnvironment);
+      if (stmt.increment !== null) {
+        evaluate(stmt.increment, forEnvironment);
+      }
     }
   } else {
     evaluate(stmt.expression, environment);
@@ -538,6 +557,9 @@ class Parser {
     if (this.tokens[this.current].type === "WHILE") {
       return this.whileStatement();
     }
+    if (this.tokens[this.current].type === "FOR") {
+      return this.forStatement();
+    }
     if (this.tokens[this.current].type === "VAR") {
       return this.varDeclaration();
     }
@@ -550,6 +572,37 @@ class Parser {
     const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private forStatement(): ForStmt {
+    this.current++;
+    this.consume("LEFT_PAREN", "Expect '(' after 'for'.");
+
+    let initializer: Stmt | null = null;
+    if (this.tokens[this.current].type === "SEMICOLON") {
+      this.current++;
+    } else if (this.tokens[this.current].type === "VAR") {
+      initializer = this.varDeclaration();
+    } else {
+      const expression = this.assignment();
+      this.consume("SEMICOLON", "Expect ';' after expression.");
+      initializer = { kind: "expression", expression };
+    }
+
+    let condition: Expr | null = null;
+    if (this.tokens[this.current].type !== "SEMICOLON") {
+      condition = this.assignment();
+    }
+    this.consume("SEMICOLON", "Expect ';' after loop condition.");
+
+    let increment: Expr | null = null;
+    if (this.tokens[this.current].type !== "RIGHT_PAREN") {
+      increment = this.assignment();
+    }
+    this.consume("RIGHT_PAREN", "Expect ')' after for clauses.");
+
+    const body = this.statement();
+    return { kind: "for", initializer, condition, increment, body };
   }
 
   private whileStatement(): WhileStmt {
