@@ -339,15 +339,24 @@ class LoxFunction implements LoxCallable {
 
 class LoxClass implements LoxCallable {
   readonly name: string;
+  readonly superclass: LoxClass | null;
   private methods: Map<string, LoxFunction>;
 
-  constructor(name: string, methods: Map<string, LoxFunction>) {
+  constructor(name: string, superclass: LoxClass | null, methods: Map<string, LoxFunction>) {
     this.name = name;
+    this.superclass = superclass;
     this.methods = methods;
   }
 
   findMethod(name: string): LoxFunction | undefined {
-    return this.methods.get(name);
+    const method = this.methods.get(name);
+    if (method !== undefined) {
+      return method;
+    }
+    if (this.superclass !== null) {
+      return this.superclass.findMethod(name);
+    }
+    return undefined;
   }
 
   arity(): number {
@@ -761,6 +770,7 @@ interface ReturnStmt {
 interface ClassStmt {
   kind: "class";
   name: string;
+  superclass: Expr | null;
   methods: FunctionStmt[];
   line: number;
 }
@@ -802,11 +812,19 @@ function execute(stmt: Stmt, environment: Environment): void {
     const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment, false);
     environment.define(stmt.name, fn);
   } else if (stmt.kind === "class") {
+    let superclass: LoxClass | null = null;
+    if (stmt.superclass !== null) {
+      const superValue = evaluate(stmt.superclass, environment);
+      if (!(superValue instanceof LoxClass)) {
+        throw new RuntimeError(stmt.line, "Superclass must be a class.");
+      }
+      superclass = superValue;
+    }
     const methods = new Map<string, LoxFunction>();
     for (const method of stmt.methods) {
       methods.set(method.name, new LoxFunction(method.name, method.params, method.body, environment, method.name === "init"));
     }
-    const cls = new LoxClass(stmt.name, methods);
+    const cls = new LoxClass(stmt.name, superclass, methods);
     environment.define(stmt.name, cls);
   } else if (stmt.kind === "return") {
     const value = stmt.value !== null ? evaluate(stmt.value, environment) : null;
@@ -1032,13 +1050,19 @@ class Parser {
     const line = this.tokens[this.current].line;
     this.current++; // consume 'class'
     const name = this.consume("IDENTIFIER", "Expect class name.");
+    let superclass: Expr | null = null;
+    if (this.tokens[this.current].type === "LESS") {
+      this.current++;
+      const superName = this.consume("IDENTIFIER", "Expect superclass name.");
+      superclass = { kind: "variable", name: superName.lexeme, line: superName.line };
+    }
     this.consume("LEFT_BRACE", "Expect '{' before class body.");
     const methods: FunctionStmt[] = [];
     while (this.tokens[this.current].type !== "RIGHT_BRACE" && this.tokens[this.current].type !== "EOF") {
       methods.push(this.functionBody("method"));
     }
     this.consume("RIGHT_BRACE", "Expect '}' after class body.");
-    return { kind: "class", name: name.lexeme, methods, line };
+    return { kind: "class", name: name.lexeme, superclass, methods, line };
   }
 
   private varDeclaration(): VarStmt {
@@ -1226,7 +1250,7 @@ class Parser {
 class Resolver {
   private scopes: Array<Map<string, boolean>> = [];
   private currentFunction: "none" | "function" | "initializer" = "none";
-  private currentClass: "none" | "class" = "none";
+  private currentClass: "none" | "class" | "subclass" = "none";
   hadError = false;
 
   resolve(statements: Stmt[]): void {
@@ -1253,6 +1277,14 @@ class Resolver {
       this.define(stmt.name);
       const enclosingClass = this.currentClass;
       this.currentClass = "class";
+      if (stmt.superclass !== null) {
+        if (stmt.superclass.kind === "variable" && stmt.superclass.name === stmt.name) {
+          this.hadError = true;
+          console.error(`[line ${stmt.superclass.line}] Error at '${stmt.name}': A class can't inherit from itself.`);
+        }
+        this.currentClass = "subclass";
+        this.resolveExpr(stmt.superclass);
+      }
       this.beginScope();
       this.scopes[this.scopes.length - 1].set("this", true);
       for (const method of stmt.methods) {
