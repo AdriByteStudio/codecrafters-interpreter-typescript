@@ -533,13 +533,17 @@ class Parser {
 
   parseProgram(): Stmt[] {
     const statements: Stmt[] = [];
-    while (this.tokens[this.current].type !== "EOF") {
+    while (!this.isAtEnd()) {
       const statement = this.declaration();
       if (statement !== null) {
         statements.push(statement);
       }
     }
     return statements;
+  }
+
+  private isAtEnd(): boolean {
+    return this.current >= this.tokens.length || this.tokens[this.current].type === "EOF";
   }
 
   private declaration(): Stmt | null {
@@ -561,7 +565,7 @@ class Parser {
 
   private synchronize(): void {
     this.current++;
-    while (this.tokens[this.current].type !== "EOF") {
+    while (!this.isAtEnd()) {
       if (this.tokens[this.current - 1].type === "SEMICOLON") {
         return;
       }
