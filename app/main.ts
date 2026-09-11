@@ -238,8 +238,8 @@ interface CallExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | CallExpr;
-type Value = string | number | boolean | null | LoxCallable;
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr;
+type Value = string | number | boolean | null | LoxCallable | LoxInstance;
 
 interface LoxCallable {
   arity(): number;
@@ -304,7 +304,7 @@ class LoxFunction implements LoxCallable {
 }
 
 class LoxClass implements LoxCallable {
-  private name: string;
+  readonly name: string;
 
   constructor(name: string) {
     this.name = name;
@@ -315,11 +315,23 @@ class LoxClass implements LoxCallable {
   }
 
   call(_args: Value[]): Value {
-    return null;
+    return new LoxInstance(this);
   }
 
   toString(): string {
     return this.name;
+  }
+}
+
+class LoxInstance {
+  private klass: LoxClass;
+
+  constructor(klass: LoxClass) {
+    this.klass = klass;
+  }
+
+  toString(): string {
+    return `${this.klass.name} instance`;
   }
 }
 
