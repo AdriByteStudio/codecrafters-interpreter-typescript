@@ -399,6 +399,22 @@ class Environment {
     }
     throw new RuntimeError(line, `Undefined variable '${name}'.`);
   }
+
+  getAt(distance: number, name: string): Value {
+    return this.ancestor(distance).values.get(name) as Value;
+  }
+
+  assignAt(distance: number, name: string, value: Value): void {
+    this.ancestor(distance).values.set(name, value);
+  }
+
+  private ancestor(distance: number): Environment {
+    let environment: Environment = this;
+    for (let i = 0; i < distance; i++) {
+      environment = environment.enclosing as Environment;
+    }
+    return environment;
+  }
 }
 
 function createGlobalEnvironment(): Environment {
@@ -407,16 +423,28 @@ function createGlobalEnvironment(): Environment {
   return environment;
 }
 
+const locals = new Map<Expr, number>();
+let globals: Environment;
+
 function evaluate(expr: Expr, environment: Environment): Value {
   if (expr.kind === "literal") {
     return expr.value;
   }
   if (expr.kind === "variable") {
-    return environment.get(expr.name, expr.line);
+    const distance = locals.get(expr);
+    if (distance !== undefined) {
+      return environment.getAt(distance, expr.name);
+    }
+    return globals.get(expr.name, expr.line);
   }
   if (expr.kind === "assign") {
     const value = evaluate(expr.value, environment);
-    environment.assign(expr.name, value, expr.line);
+    const distance = locals.get(expr);
+    if (distance !== undefined) {
+      environment.assignAt(distance, expr.name, value);
+    } else {
+      globals.assign(expr.name, value, expr.line);
+    }
     return value;
   }
   if (expr.kind === "grouping") {
@@ -1009,6 +1037,143 @@ class Parser {
   }
 }
 
+class Resolver {
+  private scopes: Array<Map<string, boolean>> = [];
+  private currentFunction: "none" | "function" = "none";
+  hadError = false;
+
+  resolve(statements: Stmt[]): void {
+    for (const statement of statements) {
+      this.resolveStmt(statement);
+    }
+  }
+
+  private resolveStmt(stmt: Stmt): void {
+    if (stmt.kind === "block") {
+      this.beginScope();
+      this.resolve(stmt.statements);
+      this.endScope();
+    } else if (stmt.kind === "var") {
+      this.declare(stmt.name);
+      this.resolveExpr(stmt.initializer);
+      this.define(stmt.name);
+    } else if (stmt.kind === "function") {
+      this.declare(stmt.name);
+      this.define(stmt.name);
+      this.resolveFunction(stmt);
+    } else if (stmt.kind === "expression") {
+      this.resolveExpr(stmt.expression);
+    } else if (stmt.kind === "if") {
+      this.resolveExpr(stmt.condition);
+      this.resolveStmt(stmt.thenBranch);
+      if (stmt.elseBranch !== null) {
+        this.resolveStmt(stmt.elseBranch);
+      }
+    } else if (stmt.kind === "print") {
+      this.resolveExpr(stmt.expression);
+    } else if (stmt.kind === "return") {
+      if (this.currentFunction === "none") {
+        this.hadError = true;
+        console.error(`[line ${stmt.line}] Error at 'return': Can't return from top-level code.`);
+      }
+      if (stmt.value !== null) {
+        this.resolveExpr(stmt.value);
+      }
+    } else if (stmt.kind === "while") {
+      this.resolveExpr(stmt.condition);
+      this.resolveStmt(stmt.body);
+    } else if (stmt.kind === "for") {
+      this.beginScope();
+      if (stmt.initializer !== null) {
+        this.resolveStmt(stmt.initializer);
+      }
+      if (stmt.condition !== null) {
+        this.resolveExpr(stmt.condition);
+      }
+      if (stmt.increment !== null) {
+        this.resolveExpr(stmt.increment);
+      }
+      this.resolveStmt(stmt.body);
+      this.endScope();
+    }
+  }
+
+  private resolveExpr(expr: Expr): void {
+    if (expr.kind === "variable") {
+      const scope = this.scopes[this.scopes.length - 1];
+      if (scope !== undefined && scope.get(expr.name) === false) {
+        this.hadError = true;
+        console.error(`[line ${expr.line}] Error at '${expr.name}': Can't read local variable in its own initializer.`);
+      }
+      this.resolveLocal(expr, expr.name);
+    } else if (expr.kind === "assign") {
+      this.resolveExpr(expr.value);
+      this.resolveLocal(expr, expr.name);
+    } else if (expr.kind === "literal") {
+      // nothing to resolve
+    } else if (expr.kind === "grouping") {
+      this.resolveExpr(expr.expression);
+    } else if (expr.kind === "unary") {
+      this.resolveExpr(expr.right);
+    } else if (expr.kind === "binary") {
+      this.resolveExpr(expr.left);
+      this.resolveExpr(expr.right);
+    } else if (expr.kind === "logical") {
+      this.resolveExpr(expr.left);
+      this.resolveExpr(expr.right);
+    } else if (expr.kind === "call") {
+      this.resolveExpr(expr.callee);
+      for (const arg of expr.args) {
+        this.resolveExpr(arg);
+      }
+    }
+  }
+
+  private resolveFunction(stmt: FunctionStmt): void {
+    const enclosingFunction = this.currentFunction;
+    this.currentFunction = "function";
+    this.beginScope();
+    for (const param of stmt.params) {
+      this.declare(param);
+      this.define(param);
+    }
+    this.resolve(stmt.body);
+    this.endScope();
+    this.currentFunction = enclosingFunction;
+  }
+
+  private beginScope(): void {
+    this.scopes.push(new Map());
+  }
+
+  private endScope(): void {
+    this.scopes.pop();
+  }
+
+  private declare(name: string): void {
+    if (this.scopes.length === 0) {
+      return;
+    }
+    this.scopes[this.scopes.length - 1].set(name, false);
+  }
+
+  private define(name: string): void {
+    if (this.scopes.length === 0) {
+      return;
+    }
+    this.scopes[this.scopes.length - 1].set(name, true);
+  }
+
+  private resolveLocal(expr: Expr, name: string): void {
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      if (this.scopes[i].has(name)) {
+        locals.set(expr, this.scopes.length - 1 - i);
+        return;
+      }
+    }
+  }
+}
+
 const args: string[] = process.argv.slice(2); // Skip the first two arguments (node path and script path)
 
 if (args.length < 2) {
@@ -1053,7 +1218,8 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
-    console.log(stringify(evaluate(expr, createGlobalEnvironment())));
+    globals = createGlobalEnvironment();
+    console.log(stringify(evaluate(expr, globals)));
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
@@ -1072,10 +1238,16 @@ if (command === "tokenize") {
   if (parser.hadError) {
     process.exit(65);
   }
-  const environment = createGlobalEnvironment();
+  const resolver = new Resolver();
+  locals.clear();
+  resolver.resolve(statements);
+  if (resolver.hadError) {
+    process.exit(65);
+  }
+  globals = createGlobalEnvironment();
   try {
     for (const statement of statements) {
-      execute(statement, environment);
+      execute(statement, globals);
     }
   } catch (error) {
     if (error instanceof RuntimeError) {
