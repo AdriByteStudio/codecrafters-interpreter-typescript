@@ -285,8 +285,15 @@ class LoxFunction implements LoxCallable {
     for (let i = 0; i < this.params.length; i++) {
       environment.define(this.params[i], args[i]);
     }
-    for (const statement of this.body) {
-      execute(statement, environment);
+    try {
+      for (const statement of this.body) {
+        execute(statement, environment);
+      }
+    } catch (error) {
+      if (error instanceof ReturnSignal) {
+        return error.value;
+      }
+      throw error;
     }
     return null;
   }
@@ -347,6 +354,15 @@ class RuntimeError extends Error {
   constructor(line: number, message: string) {
     super(message);
     this.line = line;
+  }
+}
+
+class ReturnSignal extends Error {
+  value: Value;
+
+  constructor(value: Value) {
+    super();
+    this.value = value;
   }
 }
 
@@ -575,7 +591,13 @@ interface FunctionStmt {
   body: Stmt[];
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt | FunctionStmt;
+interface ReturnStmt {
+  kind: "return";
+  value: Expr | null;
+  line: number;
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt | FunctionStmt | ReturnStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -611,6 +633,9 @@ function execute(stmt: Stmt, environment: Environment): void {
   } else if (stmt.kind === "function") {
     const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment);
     environment.define(stmt.name, fn);
+  } else if (stmt.kind === "return") {
+    const value = stmt.value !== null ? evaluate(stmt.value, environment) : null;
+    throw new ReturnSignal(value);
   } else {
     evaluate(stmt.expression, environment);
   }
@@ -716,9 +741,23 @@ class Parser {
       this.consume("SEMICOLON", "Expect ';' after value.");
       return { kind: "print", expression };
     }
+    if (this.tokens[this.current].type === "RETURN") {
+      return this.returnStatement();
+    }
     const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private returnStatement(): ReturnStmt {
+    const keyword = this.tokens[this.current];
+    this.current++;
+    let value: Expr | null = null;
+    if (this.tokens[this.current].type !== "SEMICOLON") {
+      value = this.assignment();
+    }
+    this.consume("SEMICOLON", "Expect ';' after return value.");
+    return { kind: "return", value, line: keyword.line };
   }
 
   private forStatement(): ForStmt {
