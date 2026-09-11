@@ -433,7 +433,14 @@ interface BlockStmt {
   statements: Stmt[];
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt;
+interface IfStmt {
+  kind: "if";
+  condition: Expr;
+  thenBranch: Stmt;
+  elseBranch: Stmt | null;
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -444,6 +451,12 @@ function execute(stmt: Stmt, environment: Environment): void {
     const blockEnvironment = new Environment(environment);
     for (const statement of stmt.statements) {
       execute(statement, blockEnvironment);
+    }
+  } else if (stmt.kind === "if") {
+    if (isTruthy(evaluate(stmt.condition, environment))) {
+      execute(stmt.thenBranch, environment);
+    } else if (stmt.elseBranch !== null) {
+      execute(stmt.elseBranch, environment);
     }
   } else {
     evaluate(stmt.expression, environment);
@@ -483,6 +496,9 @@ class Parser {
     if (this.tokens[this.current].type === "LEFT_BRACE") {
       return this.block();
     }
+    if (this.tokens[this.current].type === "IF") {
+      return this.ifStatement();
+    }
     if (this.tokens[this.current].type === "VAR") {
       return this.varDeclaration();
     }
@@ -495,6 +511,20 @@ class Parser {
     const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private ifStatement(): IfStmt {
+    this.current++;
+    this.consume("LEFT_PAREN", "Expect '(' after 'if'.");
+    const condition = this.assignment();
+    this.consume("RIGHT_PAREN", "Expect ')' after if condition.");
+    const thenBranch = this.statement();
+    let elseBranch: Stmt | null = null;
+    if (this.tokens[this.current].type === "ELSE") {
+      this.current++;
+      elseBranch = this.statement();
+    }
+    return { kind: "if", condition, thenBranch, elseBranch };
   }
 
   private block(): BlockStmt {
