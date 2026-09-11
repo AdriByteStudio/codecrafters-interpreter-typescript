@@ -238,7 +238,22 @@ interface CallExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr;
+interface GetExpr {
+  kind: "get";
+  object: Expr;
+  name: string;
+  line: number;
+}
+
+interface SetExpr {
+  kind: "set";
+  object: Expr;
+  name: string;
+  value: Expr;
+  line: number;
+}
+
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | GetExpr | SetExpr;
 type Value = string | number | boolean | null | LoxCallable | LoxInstance;
 
 interface LoxCallable {
@@ -325,9 +340,22 @@ class LoxClass implements LoxCallable {
 
 class LoxInstance {
   private klass: LoxClass;
+  private fields = new Map<string, Value>();
 
   constructor(klass: LoxClass) {
     this.klass = klass;
+  }
+
+  get(name: string, line: number): Value {
+    const value = this.fields.get(name);
+    if (value !== undefined) {
+      return value;
+    }
+    throw new RuntimeError(line, `Undefined property '${name}'.`);
+  }
+
+  set(name: string, value: Value): void {
+    this.fields.set(name, value);
   }
 
   toString(): string {
@@ -360,6 +388,12 @@ function printExpr(expr: Expr): string {
   }
   if (expr.kind === "assign") {
     return `(= ${expr.name} ${printExpr(expr.value)})`;
+  }
+  if (expr.kind === "get") {
+    return `(${printExpr(expr.object)}.${expr.name})`;
+  }
+  if (expr.kind === "set") {
+    return `(= ${printExpr(expr.object)}.${expr.name} ${printExpr(expr.value)})`;
   }
   if (expr.value === null) {
     return "nil";
@@ -510,6 +544,22 @@ function evaluate(expr: Expr, environment: Environment): Value {
       throw new RuntimeError(expr.line, `Expected ${callee.arity()} arguments but got ${args.length}.`);
     }
     return callee.call(args);
+  }
+  if (expr.kind === "get") {
+    const object = evaluate(expr.object, environment);
+    if (object instanceof LoxInstance) {
+      return object.get(expr.name, expr.line);
+    }
+    throw new RuntimeError(expr.line, "Only instances have properties.");
+  }
+  if (expr.kind === "set") {
+    const object = evaluate(expr.object, environment);
+    if (!(object instanceof LoxInstance)) {
+      throw new RuntimeError(expr.line, "Only instances have fields.");
+    }
+    const value = evaluate(expr.value, environment);
+    object.set(expr.name, value);
+    return value;
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -964,6 +1014,9 @@ class Parser {
     if (expr.kind === "variable") {
       return { kind: "assign", name: expr.name, value, line: equals.line };
     }
+    if (expr.kind === "get") {
+      return { kind: "set", object: expr.object, name: expr.name, value, line: equals.line };
+    }
     throw new ParseError(equals, "Invalid assignment target.");
   }
 
@@ -1059,18 +1112,26 @@ class Parser {
 
   private call(): Expr {
     let expr = this.primary();
-    while (this.tokens[this.current].type === "LEFT_PAREN") {
-      this.current++;
-      const args: Expr[] = [];
-      if (this.tokens[this.current].type !== "RIGHT_PAREN") {
-        args.push(this.assignment());
-        while (this.tokens[this.current].type === "COMMA") {
-          this.current++;
+    while (true) {
+      if (this.tokens[this.current].type === "LEFT_PAREN") {
+        this.current++;
+        const args: Expr[] = [];
+        if (this.tokens[this.current].type !== "RIGHT_PAREN") {
           args.push(this.assignment());
+          while (this.tokens[this.current].type === "COMMA") {
+            this.current++;
+            args.push(this.assignment());
+          }
         }
+        const paren = this.consume("RIGHT_PAREN", "Expect ')' after arguments.");
+        expr = { kind: "call", callee: expr, args, line: paren.line };
+      } else if (this.tokens[this.current].type === "DOT") {
+        this.current++;
+        const name = this.consume("IDENTIFIER", "Expect property name after '.'.");
+        expr = { kind: "get", object: expr, name: name.lexeme, line: name.line };
+      } else {
+        break;
       }
-      const paren = this.consume("RIGHT_PAREN", "Expect ')' after arguments.");
-      expr = { kind: "call", callee: expr, args, line: paren.line };
     }
     return expr;
   }
@@ -1202,6 +1263,11 @@ class Resolver {
       for (const arg of expr.args) {
         this.resolveExpr(arg);
       }
+    } else if (expr.kind === "get") {
+      this.resolveExpr(expr.object);
+    } else if (expr.kind === "set") {
+      this.resolveExpr(expr.value);
+      this.resolveExpr(expr.object);
     }
   }
 
