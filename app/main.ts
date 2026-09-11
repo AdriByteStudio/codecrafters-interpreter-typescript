@@ -288,12 +288,14 @@ class LoxFunction implements LoxCallable {
   private params: string[];
   private body: Stmt[];
   private closure: Environment;
+  private isInitializer: boolean;
 
-  constructor(name: string, params: string[], body: Stmt[], closure: Environment) {
+  constructor(name: string, params: string[], body: Stmt[], closure: Environment, isInitializer: boolean) {
     this.name = name;
     this.params = params;
     this.body = body;
     this.closure = closure;
+    this.isInitializer = isInitializer;
   }
 
   arity(): number {
@@ -311,9 +313,15 @@ class LoxFunction implements LoxCallable {
       }
     } catch (error) {
       if (error instanceof ReturnSignal) {
+        if (this.isInitializer) {
+          return this.closure.getAt(0, "this");
+        }
         return error.value;
       }
       throw error;
+    }
+    if (this.isInitializer) {
+      return this.closure.getAt(0, "this");
     }
     return null;
   }
@@ -321,7 +329,7 @@ class LoxFunction implements LoxCallable {
   bind(instance: LoxInstance): LoxFunction {
     const environment = new Environment(this.closure);
     environment.define("this", instance);
-    return new LoxFunction(this.name, this.params, this.body, environment);
+    return new LoxFunction(this.name, this.params, this.body, environment, this.isInitializer);
   }
 
   toString(): string {
@@ -343,11 +351,20 @@ class LoxClass implements LoxCallable {
   }
 
   arity(): number {
+    const initializer = this.findMethod("init");
+    if (initializer !== undefined) {
+      return initializer.arity();
+    }
     return 0;
   }
 
-  call(_args: Value[]): Value {
-    return new LoxInstance(this);
+  call(args: Value[]): Value {
+    const instance = new LoxInstance(this);
+    const initializer = this.findMethod("init");
+    if (initializer !== undefined) {
+      initializer.bind(instance).call(args);
+    }
+    return instance;
   }
 
   toString(): string {
@@ -782,12 +799,12 @@ function execute(stmt: Stmt, environment: Environment): void {
       }
     }
   } else if (stmt.kind === "function") {
-    const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment);
+    const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment, false);
     environment.define(stmt.name, fn);
   } else if (stmt.kind === "class") {
     const methods = new Map<string, LoxFunction>();
     for (const method of stmt.methods) {
-      methods.set(method.name, new LoxFunction(method.name, method.params, method.body, environment));
+      methods.set(method.name, new LoxFunction(method.name, method.params, method.body, environment, method.name === "init"));
     }
     const cls = new LoxClass(stmt.name, methods);
     environment.define(stmt.name, cls);
@@ -1208,7 +1225,7 @@ class Parser {
 
 class Resolver {
   private scopes: Array<Map<string, boolean>> = [];
-  private currentFunction: "none" | "function" = "none";
+  private currentFunction: "none" | "function" | "initializer" = "none";
   private currentClass: "none" | "class" = "none";
   hadError = false;
 
@@ -1230,7 +1247,7 @@ class Resolver {
     } else if (stmt.kind === "function") {
       this.declare(stmt.name, stmt.line);
       this.define(stmt.name);
-      this.resolveFunction(stmt);
+      this.resolveFunction(stmt, "function");
     } else if (stmt.kind === "class") {
       this.declare(stmt.name, stmt.line);
       this.define(stmt.name);
@@ -1239,7 +1256,7 @@ class Resolver {
       this.beginScope();
       this.scopes[this.scopes.length - 1].set("this", true);
       for (const method of stmt.methods) {
-        this.resolveFunction(method);
+        this.resolveFunction(method, method.name === "init" ? "initializer" : "function");
       }
       this.endScope();
       this.currentClass = enclosingClass;
@@ -1259,6 +1276,10 @@ class Resolver {
         console.error(`[line ${stmt.line}] Error at 'return': Can't return from top-level code.`);
       }
       if (stmt.value !== null) {
+        if (this.currentFunction === "initializer") {
+          this.hadError = true;
+          console.error(`[line ${stmt.line}] Error at 'return': Can't return a value from an initializer.`);
+        }
         this.resolveExpr(stmt.value);
       }
     } else if (stmt.kind === "while") {
@@ -1323,9 +1344,9 @@ class Resolver {
     }
   }
 
-  private resolveFunction(stmt: FunctionStmt): void {
+  private resolveFunction(stmt: FunctionStmt, type: "function" | "initializer"): void {
     const enclosingFunction = this.currentFunction;
-    this.currentFunction = "function";
+    this.currentFunction = type;
     this.beginScope();
     for (let i = 0; i < stmt.params.length; i++) {
       this.declare(stmt.params[i], stmt.paramLines[i]);
