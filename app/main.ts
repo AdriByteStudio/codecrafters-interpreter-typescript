@@ -253,7 +253,12 @@ interface SetExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | GetExpr | SetExpr;
+interface ThisExpr {
+  kind: "this";
+  line: number;
+}
+
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | GetExpr | SetExpr | ThisExpr;
 type Value = string | number | boolean | null | LoxCallable | LoxInstance;
 
 interface LoxCallable {
@@ -313,6 +318,12 @@ class LoxFunction implements LoxCallable {
     return null;
   }
 
+  bind(instance: LoxInstance): LoxFunction {
+    const environment = new Environment(this.closure);
+    environment.define("this", instance);
+    return new LoxFunction(this.name, this.params, this.body, environment);
+  }
+
   toString(): string {
     return `<fn ${this.name}>`;
   }
@@ -320,9 +331,15 @@ class LoxFunction implements LoxCallable {
 
 class LoxClass implements LoxCallable {
   readonly name: string;
+  private methods: Map<string, LoxFunction>;
 
-  constructor(name: string) {
+  constructor(name: string, methods: Map<string, LoxFunction>) {
     this.name = name;
+    this.methods = methods;
+  }
+
+  findMethod(name: string): LoxFunction | undefined {
+    return this.methods.get(name);
   }
 
   arity(): number {
@@ -350,6 +367,10 @@ class LoxInstance {
     const value = this.fields.get(name);
     if (value !== undefined) {
       return value;
+    }
+    const method = this.klass.findMethod(name);
+    if (method !== undefined) {
+      return method.bind(this);
     }
     throw new RuntimeError(line, `Undefined property '${name}'.`);
   }
@@ -394,6 +415,9 @@ function printExpr(expr: Expr): string {
   }
   if (expr.kind === "set") {
     return `(= ${printExpr(expr.object)}.${expr.name} ${printExpr(expr.value)})`;
+  }
+  if (expr.kind === "this") {
+    return "this";
   }
   if (expr.value === null) {
     return "nil";
@@ -560,6 +584,13 @@ function evaluate(expr: Expr, environment: Environment): Value {
     const value = evaluate(expr.value, environment);
     object.set(expr.name, value);
     return value;
+  }
+  if (expr.kind === "this") {
+    const distance = locals.get(expr);
+    if (distance !== undefined) {
+      return environment.getAt(distance, "this");
+    }
+    return globals.get("this", expr.line);
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -754,7 +785,11 @@ function execute(stmt: Stmt, environment: Environment): void {
     const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment);
     environment.define(stmt.name, fn);
   } else if (stmt.kind === "class") {
-    const cls = new LoxClass(stmt.name);
+    const methods = new Map<string, LoxFunction>();
+    for (const method of stmt.methods) {
+      methods.set(method.name, new LoxFunction(method.name, method.params, method.body, environment));
+    }
+    const cls = new LoxClass(stmt.name, methods);
     environment.define(stmt.name, cls);
   } else if (stmt.kind === "return") {
     const value = stmt.value !== null ? evaluate(stmt.value, environment) : null;
@@ -1157,6 +1192,9 @@ class Parser {
       case "IDENTIFIER":
         this.current++;
         return { kind: "variable", name: token.lexeme, line: token.line };
+      case "THIS":
+        this.current++;
+        return { kind: "this", line: token.line };
       case "LEFT_PAREN": {
         this.current++;
         const expression = this.assignment();
@@ -1171,6 +1209,7 @@ class Parser {
 class Resolver {
   private scopes: Array<Map<string, boolean>> = [];
   private currentFunction: "none" | "function" = "none";
+  private currentClass: "none" | "class" = "none";
   hadError = false;
 
   resolve(statements: Stmt[]): void {
@@ -1195,9 +1234,15 @@ class Resolver {
     } else if (stmt.kind === "class") {
       this.declare(stmt.name, stmt.line);
       this.define(stmt.name);
+      const enclosingClass = this.currentClass;
+      this.currentClass = "class";
+      this.beginScope();
+      this.scopes[this.scopes.length - 1].set("this", true);
       for (const method of stmt.methods) {
         this.resolveFunction(method);
       }
+      this.endScope();
+      this.currentClass = enclosingClass;
     } else if (stmt.kind === "expression") {
       this.resolveExpr(stmt.expression);
     } else if (stmt.kind === "if") {
@@ -1268,6 +1313,13 @@ class Resolver {
     } else if (expr.kind === "set") {
       this.resolveExpr(expr.value);
       this.resolveExpr(expr.object);
+    } else if (expr.kind === "this") {
+      if (this.currentClass === "none") {
+        this.hadError = true;
+        console.error(`[line ${expr.line}] Error at 'this': Can't use 'this' outside of a class.`);
+        return;
+      }
+      this.resolveLocal(expr, "this");
     }
   }
 
