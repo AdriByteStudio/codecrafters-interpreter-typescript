@@ -244,6 +244,7 @@ type Value = string | number | boolean | null | LoxCallable;
 interface LoxCallable {
   arity(): number;
   call(args: Value[]): Value;
+  toString(): string;
 }
 
 function isCallable(value: Value): value is LoxCallable {
@@ -256,6 +257,42 @@ class Clock implements LoxCallable {
   }
   call(_args: Value[]): Value {
     return Date.now() / 1000;
+  }
+  toString(): string {
+    return "<native fn>";
+  }
+}
+
+class LoxFunction implements LoxCallable {
+  private name: string;
+  private params: string[];
+  private body: Stmt[];
+  private closure: Environment;
+
+  constructor(name: string, params: string[], body: Stmt[], closure: Environment) {
+    this.name = name;
+    this.params = params;
+    this.body = body;
+    this.closure = closure;
+  }
+
+  arity(): number {
+    return this.params.length;
+  }
+
+  call(args: Value[]): Value {
+    const environment = new Environment(this.closure);
+    for (let i = 0; i < this.params.length; i++) {
+      environment.define(this.params[i], args[i]);
+    }
+    for (const statement of this.body) {
+      execute(statement, environment);
+    }
+    return null;
+  }
+
+  toString(): string {
+    return `<fn ${this.name}>`;
   }
 }
 
@@ -477,7 +514,7 @@ function stringify(value: Value): string {
     return "nil";
   }
   if (isCallable(value)) {
-    return "<native fn>";
+    return value.toString();
   }
   return String(value);
 }
@@ -531,7 +568,14 @@ interface ForStmt {
   body: Stmt;
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt;
+interface FunctionStmt {
+  kind: "function";
+  name: string;
+  params: string[];
+  body: Stmt[];
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt | ForStmt | FunctionStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -564,6 +608,9 @@ function execute(stmt: Stmt, environment: Environment): void {
         evaluate(stmt.increment, forEnvironment);
       }
     }
+  } else if (stmt.kind === "function") {
+    const fn = new LoxFunction(stmt.name, stmt.params, stmt.body, environment);
+    environment.define(stmt.name, fn);
   } else {
     evaluate(stmt.expression, environment);
   }
@@ -599,6 +646,9 @@ class Parser {
 
   private declaration(): Stmt | null {
     try {
+      if (this.tokens[this.current].type === "FUN") {
+        return this.functionDeclaration();
+      }
       if (this.tokens[this.current].type === "VAR") {
         return this.varDeclaration();
       }
@@ -648,7 +698,8 @@ class Parser {
 
   private statement(): Stmt {
     if (this.tokens[this.current].type === "LEFT_BRACE") {
-      return this.block();
+      this.current++;
+      return { kind: "block", statements: this.block() };
     }
     if (this.tokens[this.current].type === "IF") {
       return this.ifStatement();
@@ -724,8 +775,7 @@ class Parser {
     return { kind: "if", condition, thenBranch, elseBranch };
   }
 
-  private block(): BlockStmt {
-    this.current++;
+  private block(): Stmt[] {
     const statements: Stmt[] = [];
     while (this.tokens[this.current].type !== "RIGHT_BRACE" && this.tokens[this.current].type !== "EOF") {
       const statement = this.declaration();
@@ -733,8 +783,24 @@ class Parser {
         statements.push(statement);
       }
     }
-    this.consume("RIGHT_BRACE", "Expect '}' .");
-    return { kind: "block", statements };
+    this.consume("RIGHT_BRACE", "Expect '}' after block.");
+    return statements;
+  }
+
+  private functionDeclaration(): FunctionStmt {
+    this.current++;
+    const name = this.consume("IDENTIFIER", "Expect function name.");
+    this.consume("LEFT_PAREN", "Expect '(' after function name.");
+    const params: string[] = [];
+    if (this.tokens[this.current].type !== "RIGHT_PAREN") {
+      do {
+        params.push(this.consume("IDENTIFIER", "Expect parameter name.").lexeme);
+      } while (this.tokens[this.current].type === "COMMA" && (this.current++, true));
+    }
+    this.consume("RIGHT_PAREN", "Expect ')' after parameters.");
+    this.consume("LEFT_BRACE", "Expect '{' before function body.");
+    const body = this.block();
+    return { kind: "function", name: name.lexeme, params, body };
   }
 
   private varDeclaration(): VarStmt {
