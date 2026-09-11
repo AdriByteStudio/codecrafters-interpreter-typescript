@@ -258,7 +258,13 @@ interface ThisExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | GetExpr | SetExpr | ThisExpr;
+interface SuperExpr {
+  kind: "super";
+  method: string;
+  line: number;
+}
+
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | GetExpr | SetExpr | ThisExpr | SuperExpr;
 type Value = string | number | boolean | null | LoxCallable | LoxInstance;
 
 interface LoxCallable {
@@ -445,6 +451,9 @@ function printExpr(expr: Expr): string {
   if (expr.kind === "this") {
     return "this";
   }
+  if (expr.kind === "super") {
+    return `(super.${expr.method})`;
+  }
   if (expr.value === null) {
     return "nil";
   }
@@ -617,6 +626,19 @@ function evaluate(expr: Expr, environment: Environment): Value {
       return environment.getAt(distance, "this");
     }
     return globals.get("this", expr.line);
+  }
+  if (expr.kind === "super") {
+    const distance = locals.get(expr);
+    if (distance === undefined) {
+      throw new RuntimeError(expr.line, "Undefined superclass method.");
+    }
+    const superclass = environment.getAt(distance, "super") as LoxClass;
+    const object = environment.getAt(distance - 1, "this") as LoxInstance;
+    const method = superclass.findMethod(expr.method);
+    if (method === undefined) {
+      throw new RuntimeError(expr.line, `Undefined property '${expr.method}'.`);
+    }
+    return method.bind(object);
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -820,9 +842,14 @@ function execute(stmt: Stmt, environment: Environment): void {
       }
       superclass = superValue;
     }
+    let classEnvironment = environment;
+    if (superclass !== null) {
+      classEnvironment = new Environment(environment);
+      classEnvironment.define("super", superclass);
+    }
     const methods = new Map<string, LoxFunction>();
     for (const method of stmt.methods) {
-      methods.set(method.name, new LoxFunction(method.name, method.params, method.body, environment, method.name === "init"));
+      methods.set(method.name, new LoxFunction(method.name, method.params, method.body, classEnvironment, method.name === "init"));
     }
     const cls = new LoxClass(stmt.name, superclass, methods);
     environment.define(stmt.name, cls);
@@ -1236,6 +1263,12 @@ class Parser {
       case "THIS":
         this.current++;
         return { kind: "this", line: token.line };
+      case "SUPER": {
+        this.current++;
+        this.consume("DOT", "Expect '.' after 'super'.");
+        const method = this.consume("IDENTIFIER", "Expect superclass method name.");
+        return { kind: "super", method: method.lexeme, line: token.line };
+      }
       case "LEFT_PAREN": {
         this.current++;
         const expression = this.assignment();
@@ -1284,6 +1317,8 @@ class Resolver {
         }
         this.currentClass = "subclass";
         this.resolveExpr(stmt.superclass);
+        this.beginScope();
+        this.scopes[this.scopes.length - 1].set("super", true);
       }
       this.beginScope();
       this.scopes[this.scopes.length - 1].set("this", true);
@@ -1291,6 +1326,9 @@ class Resolver {
         this.resolveFunction(method, method.name === "init" ? "initializer" : "function");
       }
       this.endScope();
+      if (stmt.superclass !== null) {
+        this.endScope();
+      }
       this.currentClass = enclosingClass;
     } else if (stmt.kind === "expression") {
       this.resolveExpr(stmt.expression);
@@ -1373,6 +1411,15 @@ class Resolver {
         return;
       }
       this.resolveLocal(expr, "this");
+    } else if (expr.kind === "super") {
+      if (this.currentClass === "none") {
+        this.hadError = true;
+        console.error(`[line ${expr.line}] Error at 'super': Can't use 'super' outside of a class.`);
+      } else if (this.currentClass !== "subclass") {
+        this.hadError = true;
+        console.error(`[line ${expr.line}] Error at 'super': Can't use 'super' in a class with no superclass.`);
+      }
+      this.resolveLocal(expr, "super");
     }
   }
 
