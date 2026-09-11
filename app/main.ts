@@ -466,7 +466,13 @@ interface IfStmt {
   elseBranch: Stmt | null;
 }
 
-type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt;
+interface WhileStmt {
+  kind: "while";
+  condition: Expr;
+  body: Stmt;
+}
+
+type Stmt = PrintStmt | ExpressionStmt | VarStmt | BlockStmt | IfStmt | WhileStmt;
 
 function execute(stmt: Stmt, environment: Environment): void {
   if (stmt.kind === "print") {
@@ -483,6 +489,10 @@ function execute(stmt: Stmt, environment: Environment): void {
       execute(stmt.thenBranch, environment);
     } else if (stmt.elseBranch !== null) {
       execute(stmt.elseBranch, environment);
+    }
+  } else if (stmt.kind === "while") {
+    while (isTruthy(evaluate(stmt.condition, environment))) {
+      execute(stmt.body, environment);
     }
   } else {
     evaluate(stmt.expression, environment);
@@ -525,6 +535,9 @@ class Parser {
     if (this.tokens[this.current].type === "IF") {
       return this.ifStatement();
     }
+    if (this.tokens[this.current].type === "WHILE") {
+      return this.whileStatement();
+    }
     if (this.tokens[this.current].type === "VAR") {
       return this.varDeclaration();
     }
@@ -537,6 +550,15 @@ class Parser {
     const expression = this.assignment();
     this.consume("SEMICOLON", "Expect ';' after expression.");
     return { kind: "expression", expression };
+  }
+
+  private whileStatement(): WhileStmt {
+    this.current++;
+    this.consume("LEFT_PAREN", "Expect '(' after 'while'.");
+    const condition = this.assignment();
+    this.consume("RIGHT_PAREN", "Expect ')' after condition.");
+    const body = this.statement();
+    return { kind: "while", condition, body };
   }
 
   private ifStatement(): IfStmt {
