@@ -343,6 +343,12 @@ function evaluate(expr: Expr, environment: Environment): Value {
       }
       return evaluate(expr.right, environment);
     }
+    if (expr.operator === "and") {
+      if (!isTruthy(left)) {
+        return left;
+      }
+      return evaluate(expr.right, environment);
+    }
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -585,8 +591,20 @@ class Parser {
   }
 
   private or(): Expr {
-    let expr = this.equality();
+    let expr = this.and();
     while (this.tokens[this.current].type === "OR") {
+      const operator = this.tokens[this.current].lexeme;
+      const line = this.tokens[this.current].line;
+      this.current++;
+      const right = this.and();
+      expr = { kind: "logical", operator, left: expr, right, line };
+    }
+    return expr;
+  }
+
+  private and(): Expr {
+    let expr = this.equality();
+    while (this.tokens[this.current].type === "AND") {
       const operator = this.tokens[this.current].lexeme;
       const line = this.tokens[this.current].line;
       this.current++;
