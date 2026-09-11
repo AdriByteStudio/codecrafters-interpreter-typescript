@@ -231,8 +231,33 @@ interface LogicalExpr {
   line: number;
 }
 
-type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr;
-type Value = string | number | boolean | null;
+interface CallExpr {
+  kind: "call";
+  callee: Expr;
+  args: Expr[];
+  line: number;
+}
+
+type Expr = LiteralExpr | VariableExpr | AssignExpr | GroupingExpr | UnaryExpr | BinaryExpr | LogicalExpr | CallExpr | CallExpr;
+type Value = string | number | boolean | null | LoxCallable;
+
+interface LoxCallable {
+  arity(): number;
+  call(args: Value[]): Value;
+}
+
+function isCallable(value: Value): value is LoxCallable {
+  return typeof value === "object" && value !== null && "call" in value;
+}
+
+class Clock implements LoxCallable {
+  arity(): number {
+    return 0;
+  }
+  call(_args: Value[]): Value {
+    return Date.now() / 1000;
+  }
+}
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toFixed(1) : String(value);
@@ -250,6 +275,9 @@ function printExpr(expr: Expr): string {
   }
   if (expr.kind === "logical") {
     return `(${expr.operator} ${printExpr(expr.left)} ${printExpr(expr.right)})`;
+  }
+  if (expr.kind === "call") {
+    return `(${printExpr(expr.callee)}${expr.args.map((arg) => ` ${printExpr(arg)}`).join("")})`;
   }
   if (expr.kind === "variable") {
     return expr.name;
@@ -320,6 +348,12 @@ class Environment {
   }
 }
 
+function createGlobalEnvironment(): Environment {
+  const environment = new Environment();
+  environment.define("clock", new Clock());
+  return environment;
+}
+
 function evaluate(expr: Expr, environment: Environment): Value {
   if (expr.kind === "literal") {
     return expr.value;
@@ -349,6 +383,20 @@ function evaluate(expr: Expr, environment: Environment): Value {
       }
       return evaluate(expr.right, environment);
     }
+  }
+  if (expr.kind === "call") {
+    const callee = evaluate(expr.callee, environment);
+    const args: Value[] = [];
+    for (const arg of expr.args) {
+      args.push(evaluate(arg, environment));
+    }
+    if (!isCallable(callee)) {
+      throw new RuntimeError(expr.line, "Can only call functions and classes.");
+    }
+    if (args.length !== callee.arity()) {
+      throw new RuntimeError(expr.line, `Expected ${callee.arity()} arguments but got ${args.length}.`);
+    }
+    return callee.call(args);
   }
   if (expr.kind === "unary") {
     const right = evaluate(expr.right, environment);
@@ -427,6 +475,9 @@ function evaluate(expr: Expr, environment: Environment): Value {
 function stringify(value: Value): string {
   if (value === null) {
     return "nil";
+  }
+  if (isCallable(value)) {
+    return "<native fn>";
   }
   return String(value);
 }
@@ -800,7 +851,25 @@ class Parser {
       const right = this.unary();
       return { kind: "unary", operator: token.lexeme, right, line: token.line };
     }
-    return this.primary();
+    return this.call();
+  }
+
+  private call(): Expr {
+    let expr = this.primary();
+    while (this.tokens[this.current].type === "LEFT_PAREN") {
+      this.current++;
+      const args: Expr[] = [];
+      if (this.tokens[this.current].type !== "RIGHT_PAREN") {
+        args.push(this.assignment());
+        while (this.tokens[this.current].type === "COMMA") {
+          this.current++;
+          args.push(this.assignment());
+        }
+      }
+      const paren = this.consume("RIGHT_PAREN", "Expect ')' after arguments.");
+      expr = { kind: "call", callee: expr, args, line: paren.line };
+    }
+    return expr;
   }
 
   private primary(): Expr {
@@ -879,7 +948,7 @@ if (command === "tokenize") {
   const parser = new Parser(tokens);
   try {
     const expr = parser.parse();
-    console.log(stringify(evaluate(expr, new Environment())));
+    console.log(stringify(evaluate(expr, createGlobalEnvironment())));
   } catch (error) {
     if (error instanceof ParseError) {
       console.error(error.message);
@@ -898,7 +967,7 @@ if (command === "tokenize") {
   if (parser.hadError) {
     process.exit(65);
   }
-  const environment = new Environment();
+  const environment = createGlobalEnvironment();
   try {
     for (const statement of statements) {
       execute(statement, environment);
